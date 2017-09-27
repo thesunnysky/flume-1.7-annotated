@@ -211,6 +211,8 @@ run_flume() {
   if [ ${CLEAN_FLAG} -ne 0 ]; then
     set -x
   fi
+  #这里使用$EXEC 代表的是在flume会根据不同的参数来启动，dryrun 参数是将并不真的运行flume，
+  #只是将要运行的指令打印出来，具体的可以参考 --dryrun 参数 
   $EXEC $JAVA_HOME/bin/java $JAVA_OPTS $FLUME_JAVA_OPTS "${arr_java_props[@]}" -cp "$FLUME_CLASSPATH" \
       -Djava.library.path=$FLUME_JAVA_LIBRARY_PATH "$FLUME_APPLICATION_CLASS" $*
 }
@@ -222,6 +224,7 @@ run_flume() {
 # set default params
 FLUME_CLASSPATH=""
 FLUME_JAVA_LIBRARY_PATH=""
+#默认占用堆空间大小，这一块都可以根据JVM进行重新设置
 JAVA_OPTS="-Xmx20m"
 LD_LIBRARY_PATH=""
 
@@ -266,17 +269,22 @@ case "$mode" in
 esac
 
 args=""
-#讲所有的参数都船进入
+#判断参数不为空
 while [ -n "$*" ] ; do
   arg=$1
+  # shell 语法，参数移动
   shift
 
   case "$arg" in
+  # --conf 必须带有参数
+  # 指定配置文件所在的目录
     --conf|-c)
       [ -n "$1" ] || error "Option --conf requires an argument" 1
       opt_conf=$1
       shift
       ;;
+  # --classpath 必须带有参数
+  # 将通过命令行传入的classpath 追加到环境中的classpath中
     --classpath|-C)
       [ -n "$1" ] || error "Option --classpath requires an argument" 1
       opt_classpath=$1
@@ -329,6 +337,7 @@ elif [ -f "$opt_conf/flume-env.sh" ]; then
 fi
 
 # prepend command-line classpath to env script classpath
+#下面一大段都是将各种classpath加到FLUME_CLASSPATH中去
 if [ -n "${opt_classpath}" ]; then
   if [ -n "${FLUME_CLASSPATH}" ]; then
     FLUME_CLASSPATH="${opt_classpath}:${FLUME_CLASSPATH}"
