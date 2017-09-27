@@ -61,7 +61,13 @@ public class Application {
   public static final String CONF_MONITOR_CLASS = "flume.monitoring.type";
   public static final String CONF_MONITOR_PREFIX = "flume.monitoring.";
 
+  /**
+   * 用来管理所有的组件，例如：source，sink，channel
+   */
   private final List<LifecycleAware> components;
+  /**
+   * 核心是通过一个 ScheduledThreadPoolExecutor 实现的一个线程池
+   */
   private final LifecycleSupervisor supervisor;
   private MaterializedConfiguration materializedConfiguration;
   private MonitorService monitorServer;
@@ -84,6 +90,10 @@ public class Application {
 
   @Subscribe
   public synchronized void handleConfigurationEvent(MaterializedConfiguration conf) {
+    /**
+     * 感觉是如果发现配置文件发生变化之后所有的compents会先关掉然后再重启
+     * 以此来实现“动态”加载配置文件的目的
+     */
     stopAllComponents();
     startAllComponents(conf);
   }
@@ -98,6 +108,8 @@ public class Application {
   private void stopAllComponents() {
     if (this.materializedConfiguration != null) {
       logger.info("Shutting down configuration: {}", this.materializedConfiguration);
+
+      //关闭source
       for (Entry<String, SourceRunner> entry :
            this.materializedConfiguration.getSourceRunners().entrySet()) {
         try {
@@ -108,6 +120,7 @@ public class Application {
         }
       }
 
+      //关闭sink
       for (Entry<String, SinkRunner> entry :
            this.materializedConfiguration.getSinkRunners().entrySet()) {
         try {
@@ -118,6 +131,7 @@ public class Application {
         }
       }
 
+      //关闭channel
       for (Entry<String, Channel> entry :
            this.materializedConfiguration.getChannels().entrySet()) {
         try {
@@ -230,21 +244,50 @@ public class Application {
 
       boolean isZkConfigured = false;
 
+      /*
+       * 首先是解析命令行中的各个参数
+       * flume启动的时候所带的 -n， -f， -h 等参数都会在这里解析
+       * flume 首先会通过脚本启动的脚本把启动的参数解析整理一遍，然后再在脚本中通过命令
+       * 启动Application 的main方法， 同时会把解析整理后的参数再传过来
+       */
+
       Options options = new Options();
 
+      /**
+       * opt: 参数名的缩写
+       * longOpt：参数名的全程
+       * hasArg：参数是否带值
+       * description：参数的描述信息
+       */
+      /**
+       * -n agent name,是一个必须带有的参数
+       */
       Option option = new Option("n", "name", true, "the name of this agent");
+      /*
+       * 表示参数是否是必须的
+       */
       option.setRequired(true);
       options.addOption(option);
 
+      /**
+       * 指定配置配置文件, 如果没有 -z 参数，则 -f 参数是必须的
+       * -z 是关于zookeeper相关的配置
+       */
       option = new Option("f", "conf-file", true,
           "specify a config file (required if -z missing)");
       option.setRequired(false);
       options.addOption(option);
 
+      /**
+       * 该参数没有简写，只有全称，如果配置了该参数标识的如果配置文件发生了改变不会去重新去加载配置文件的
+       */
       option = new Option(null, "no-reload-conf", false,
           "do not reload config file if changed");
       options.addOption(option);
 
+      /**
+       *zookeeper 相关的配置
+       */
       // Options for Zookeeper
       option = new Option("z", "zkConnString", true,
           "specify the ZooKeeper connection to use (required if -f missing)");
@@ -259,6 +302,9 @@ public class Application {
       option = new Option("h", "help", false, "display help text");
       options.addOption(option);
 
+      /**
+       * 这里使用的是apache的两个关于命令行参数解析的包来帮助完成参数解析
+       */
       CommandLineParser parser = new GnuParser();
       CommandLine commandLine = parser.parse(options, args);
 
@@ -308,6 +354,7 @@ public class Application {
               null) {
             String path = configurationFile.getPath();
             try {
+              //获取文件的绝对路径
               path = configurationFile.getCanonicalPath();
             } catch (IOException ex) {
               logger.error("Failed to read canonical path for file: " + path,
@@ -317,7 +364,14 @@ public class Application {
                 "The specified configuration file does not exist: " + path);
           }
         }
+        //? 为什么使用google的Lists
         List<LifecycleAware> components = Lists.newArrayList();
+        /**
+         * 一、没有此参数，会动态加载配置文件，默认每30秒加载一次配置文件，因此可以动态修改配置文件；
+         * 二、有此参数，则只在启动时加载一次配置文件。实现动态加载功能采用了发布订阅模式，
+         * 使用guava中的EventBus实现。
+         * 三、PropertiesFileConfigurationProvider这个类是配置文件加载类
+         */
 
         if (reload) {
           EventBus eventBus = new EventBus(agentName + "-event-bus");
