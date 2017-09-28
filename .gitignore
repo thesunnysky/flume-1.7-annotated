@@ -1,0 +1,6 @@
+flume-ng-core/.idea/*
+*/workspace.xml
+.idea/
+*.iml
+.idea/
+*/.idea

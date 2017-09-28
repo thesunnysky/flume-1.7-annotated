@@ -73,7 +73,9 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
   private final SourceFactory sourceFactory;
   private final SinkFactory sinkFactory;
   private final ChannelFactory channelFactory;
-
+  /* channelCache应该是一个全局的记录所有类型channel的Map，
+   * key 是channel的class，value是具体的channel的name
+   */
   private final Map<Class<? extends Channel>, Map<String, Channel>> channelCache;
 
   public AbstractConfigurationProvider(String agentName) {
@@ -97,6 +99,12 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
       Map<String, SourceRunner> sourceRunnerMap = Maps.newHashMap();
       Map<String, SinkRunner> sinkRunnerMap = Maps.newHashMap();
       try {
+        /*
+         * 对于一个channel，它应该有某些最基本的组件与其对接，比如说一个channel应该要有source，
+         * sink等;
+         * 下面的for 循环会遍历channelComponentMap中所有出现的channel，如果他的components是
+         * Empty的，就会将这个channel移除掉
+         */
         loadChannels(agentConf, channelComponentMap);
         loadSources(agentConf, channelComponentMap, sourceRunnerMap);
         loadSinks(agentConf, channelComponentMap, sinkRunnerMap);
@@ -154,9 +162,17 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
      * and add it back. Without this, channels like memory channel would cause
      * the first instances data to show up in the seconds.
      */
+    /*
+     * 这里的channelsNotReused 是一键多值的 Map
+     * Map 的 key 是channel的class（这里用的是 klass）, value 是channel的名字
+     */
     ListMultimap<Class<? extends Channel>, String> channelsNotReused =
         ArrayListMultimap.create();
     // assume all channels will not be re-used
+    /* 处理逻辑是先假设所有的channel都是不被服用的，放放到一个channelsNotRused中标记，
+     * 后续会逐一减产该Map中的channel是否真的不被使用了，如果不是，则会讲该channel从Map
+     * 中移除，对于检查完之后channelsNotReused中还存在的channel，就真的将它关闭掉了
+     */
     for (Map.Entry<Class<? extends Channel>, Map<String, Channel>> entry :
          channelCache.entrySet()) {
       Class<? extends Channel> channelKlass = entry.getKey();
@@ -169,9 +185,19 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
     /*
      * Components which have a ComponentConfiguration object
      */
+    /**
+     * 对于有 ComponentConfiguration 对象的 Component 来说，会重新生成他们的ChannelComponent
+     * 对象，然后房屋方法传入的 channelComponentMap中
+     */
     for (String chName : channelNames) {
       ComponentConfiguration comp = compMap.get(chName);
       if (comp != null) {
+        /**
+         * getOrCreateChannel 从字面意义上来理解如果满足条件的channel已经存在就get，如果发现满足
+         * 条件的channel不存在，就重新创建，这种情况可能针对的是某些配置更改后的channel
+         * 比如一次更改配置，有些channel的配置更改了，但是有的channel的配置没有更改，这样就需要getOrCreate
+         * 比较合适
+         */
         Channel channel = getOrCreateChannel(channelsNotReused,
             comp.getComponentName(), comp.getType());
         try {
@@ -191,12 +217,16 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
      * and use only Context
      */
     for (String chName : channelNames) {
+      //? 获取channel的上下文？ 上下文是做什么用的 ？
       Context context = agentConf.getChannelContext().get(chName);
       if (context != null) {
+        //和前面相比，第三个参数标识channel type 的变成了...,可能是某种默认的配置
         Channel channel = getOrCreateChannel(channelsNotReused, chName,
             context.getString(BasicConfigurationConstants.CONFIG_TYPE));
         try {
+          // configure 的入参也发生了变化
           Configurables.configure(channel, context);
+          // 还是将新创建的channel放进 channelComponentMap中
           channelComponentMap.put(chName, new ChannelComponent(channel));
           LOGGER.info("Created channel " + chName);
         } catch (Exception e) {
@@ -208,6 +238,9 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
     }
     /*
      * Any channel which was not re-used, will have it's reference removed
+     */
+    /*
+     *  对于不在使用的channel，这里将从channelCache中对应channel类型的map中移除掉
      */
     for (Class<? extends Channel> channelKlass : channelsNotReused.keySet()) {
       Map<String, Channel> channelMap = channelCache.get(channelKlass);
@@ -233,22 +266,26 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
     /*
      * Channel has requested a new instance on each re-configuration
      */
+    //? 这种类型的channel有什么特殊的？
     if (channelClass.isAnnotationPresent(Disposable.class)) {
       Channel channel = channelFactory.create(name, type);
       channel.setName(name);
       return channel;
     }
     Map<String, Channel> channelMap = channelCache.get(channelClass);
+    // 检查channelCache中是否存在该类型channel的channelMap，如果不存在就创建
     if (channelMap == null) {
       channelMap = new HashMap<String, Channel>();
       channelCache.put(channelClass, channelMap);
     }
+    // 检查channelMap是否存在该名字的channel，如果不存在则创建
     Channel channel = channelMap.get(name);
     if (channel == null) {
       channel = channelFactory.create(name, type);
       channel.setName(name);
       channelMap.put(name, channel);
     }
+    // 从之前标识的不在使用的channel 的Map中讲该类型该名称的channel标记移除掉
     channelsNotReused.get(channelClass).remove(name);
     return channel;
   }
