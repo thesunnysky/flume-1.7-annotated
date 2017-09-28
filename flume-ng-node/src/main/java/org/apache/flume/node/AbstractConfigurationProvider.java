@@ -323,12 +323,17 @@ public abstract class AbstractConfigurationProvider implements ConfigurationProv
                 "channel",  sourceName);
             throw new IllegalStateException(msg);
           }
+          /*
+           * channel selector 的作用?
+           * 感觉要解决这个问题需要了解Configuration相关的东西
+           */
           ChannelSelectorConfiguration selectorConfig =
               config.getSelectorConfiguration();
 
           ChannelSelector selector = ChannelSelectorFactory.create(
               sourceChannels, selectorConfig);
 
+          // channel processor
           ChannelProcessor channelProcessor = new ChannelProcessor(selector);
           Configurables.configure(channelProcessor, config);
 
