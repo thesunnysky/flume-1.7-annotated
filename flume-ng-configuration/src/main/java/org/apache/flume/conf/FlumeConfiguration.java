@@ -116,6 +116,11 @@ public class FlumeConfiguration {
     return agentConfigMap.get(hostname);
   }
 
+  /*
+   * 验证 agentConfigMap 中的配置是不是都是合法的，如果是不合法就将其移除
+   * 感觉像是为了防止从某种配置源（比如说是配置文件中） 读取过来的配置信息本身就是配置错的，
+   * 针对根据这种错误配置生成的Configuration将其移除
+   */
   private void validateConfiguration() {
     Iterator<String> it = agentConfigMap.keySet().iterator();
 
@@ -141,6 +146,30 @@ public class FlumeConfiguration {
         + " for agents: " + agentConfigMap.keySet());
   }
 
+  /*
+   * flume 的配置文件实例
+    a1.sources = r1
+    a1.sinks = k1
+    a1.channels = c1
+
+    # Describe/configure the source
+    a1.sources.r1.type = avro
+    a1.sources.r1.channels = c1
+    a1.sources.r1.bind = 0.0.0.0
+    a1.sources.r1.port = 4141
+
+    # Describe the sink
+    a1.sinks.k1.type = logger
+
+    # Use a channel which buffers events in memory
+    a1.channels.c1.type = memory
+    a1.channels.c1.capacity = 1000
+    a1.channels.c1.transactionCapacity = 100
+
+    # Bind the source and sink to the channel
+    a1.sources.r1.channels = c1
+    a1.sinks.k1.channel = c1
+   */
   private boolean addRawProperty(String name, String value) {
     // Null names and values not supported
     if (name == null || value == null) {
@@ -175,6 +204,7 @@ public class FlumeConfiguration {
       return false;
     }
 
+    //第一个 . 之前 就是agentName
     String agentName = name.substring(0, index);
 
     // Agent name must be specified for all properties
@@ -185,7 +215,7 @@ public class FlumeConfiguration {
               ErrorOrWarning.ERROR));
       return false;
     }
-
+    //除去前缀就是config key
     String configKey = name.substring(index + 1);
 
     // Configuration key must be specified for every property
@@ -470,8 +500,12 @@ public class FlumeConfiguration {
             }
             if ((configSpecified && conf.isNotFoundConfigClass()) ||
                 !configSpecified) {
+              /* 没有配置过的 或者 conf isNotFoundConfigClass的
+               * channel将其放入newContextMap中
+               */
               newContextMap.put(channelName, channelContext);
             } else if (configSpecified) {
+              //已经配置过的channel将其放入channelConfigMap中
               channelConfigMap.put(channelName, conf);
             }
             if (conf != null) {
@@ -493,10 +527,12 @@ public class FlumeConfiguration {
               FlumeConfigurationErrorType.CONFIG_ERROR, ErrorOrWarning.ERROR));
         }
       }
+      // ?
       channelContextMap = newContextMap;
       Set<String> tempchannelSet = new HashSet<String>();
       tempchannelSet.addAll(channelConfigMap.keySet());
       tempchannelSet.addAll(channelContextMap.keySet());
+      // 只返回连个集合的交集，代表了那些validate通过的channel
       channelSet.retainAll(tempchannelSet);
       return channelSet;
     }
@@ -544,15 +580,18 @@ public class FlumeConfiguration {
         if (srcContext != null) {
           SourceType srcType = getKnownSource(srcContext.getString(
               BasicConfigurationConstants.CONFIG_TYPE));
+          //未知类型的source
           if (srcType == null) {
             config = srcContext.getString(
                 BasicConfigurationConstants.CONFIG_CONFIG);
             if (config == null || config.isEmpty()) {
               config = "OTHER";
             } else {
+              //config found
               configSpecified = true;
             }
           } else {
+            //是已知类型的source
             config = srcType.toString().toUpperCase(Locale.ENGLISH);
             configSpecified = true;
           }
@@ -678,7 +717,6 @@ public class FlumeConfiguration {
                     sinkName, config, ComponentType.SINK);
             if (sinkConf != null) {
               sinkConf.configure(sinkContext);
-
             }
             if (!channelSet.contains(sinkConf.getChannel())) {
               throw new ConfigurationException("Channel " +
@@ -699,7 +737,6 @@ public class FlumeConfiguration {
           }
         }
         // Filter out any sinks that have invalid channel
-
       }
       sinkContextMap = newContextMap;
       Set<String> tempSinkset = new HashSet<String>();
@@ -720,6 +757,7 @@ public class FlumeConfiguration {
      *          Set of valid sinks
      * @return Set of valid sinkgroups
      */
+    //? 检查sink和sink group之间的合法关系，这块先不看了
     private Set<String> validateGroups(Set<String> sinkSet) {
       Set<String> sinkgroupSet = stringToSet(sinkgroups, " ");
       Map<String, String> usedSinks = new HashMap<String, String>();

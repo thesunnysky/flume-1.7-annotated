@@ -26,6 +26,13 @@ import org.apache.flume.conf.sink.SinkGroupConfiguration;
 import org.apache.flume.conf.sink.SinkProcessorConfiguration.SinkProcessorConfigurationType;
 import org.apache.flume.conf.source.SourceConfiguration.SourceConfigurationType;
 
+
+/**
+ * 主要提供了创建各种类型组件的配置类工程方法
+ * 提供了static方法
+ * type 是组件的具体类型；
+ * Component指示的时候具体那种的组件类
+ */
 public class ComponentConfigurationFactory {
 
   @SuppressWarnings("unchecked")

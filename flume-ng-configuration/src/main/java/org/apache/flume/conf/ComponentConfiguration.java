@@ -32,6 +32,10 @@ import org.apache.flume.conf.FlumeConfigurationError.ErrorOrWarning;
  *
  */
 
+/**
+ * 主要就是用来标识Component 的 Configuration信息
+ */
+
 public abstract class ComponentConfiguration {
 
   protected String componentName;
@@ -61,9 +65,11 @@ public abstract class ComponentConfiguration {
   }
 
   public void configure(Context context) throws ConfigurationException {
+    //如果已经是configure过的，就跑出异常结束
     failIfConfigured();
     String confType = context.getString(
         BasicConfigurationConstants.CONFIG_TYPE);
+    // 这个函数就做了一件事情就是配置了一下这个Component的类型
     if (confType != null && !confType.isEmpty()) {
       this.type = confType;
     }

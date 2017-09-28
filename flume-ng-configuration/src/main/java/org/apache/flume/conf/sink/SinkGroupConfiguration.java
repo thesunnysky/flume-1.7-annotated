@@ -27,6 +27,11 @@ import org.apache.flume.conf.ComponentConfiguration;
 import org.apache.flume.conf.ComponentConfigurationFactory;
 import org.apache.flume.conf.ConfigurationException;
 
+/**
+ * Sink groups允许组织多个sink到一个实体上。
+ * Sink processors能够提供在组内所有Sink之间实现负载均衡的能力，
+ * 而且在失败的情况下能够进行故障转移从一个Sink到另一个Sink。
+ */
 public class SinkGroupConfiguration extends ComponentConfiguration {
   private Context processorContext;
   private List<String> sinks;

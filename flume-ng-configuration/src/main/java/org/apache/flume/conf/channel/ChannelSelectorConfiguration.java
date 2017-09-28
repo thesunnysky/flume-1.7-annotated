@@ -24,6 +24,12 @@ import org.apache.flume.conf.ConfigurationException;
 import org.apache.flume.conf.channel.ChannelConfiguration.ChannelConfigurationType;
 import org.apache.flume.conf.source.SourceConfiguration;
 
+/**
+ * 实现了该接口的类主要作用是告诉Source中接收到的Event应该发送到哪些Channel，
+ * 在Flume中主要由两个实现方式：
+ * 1. 复用，实现类：MultiplexingChannelSelector
+ * 2. 复制，实现类：ReplicatingChannelSelector
+ */
 public class ChannelSelectorConfiguration extends
     ComponentConfiguration {
 

@@ -26,6 +26,7 @@ import org.apache.flume.conf.FlumeConfigurationError.ErrorOrWarning;
 
 public class SinkConfiguration extends ComponentConfiguration {
 
+  //sink 的channel，sink需要有channel与之对应
   protected String channel;
 
   public SinkConfiguration(String componentName) {
@@ -40,6 +41,10 @@ public class SinkConfiguration extends ComponentConfiguration {
     this.channel = channel;
   }
 
+  /*
+   * 该方法除了继承的abstract类的动作之外，自己唯一做的事情就是设从入参context中
+   * 得到channel，设置为这个sink的channel
+   */
   public void configure(Context context) throws ConfigurationException {
     super.configure(context);
     this.channel = context.getString("channel");

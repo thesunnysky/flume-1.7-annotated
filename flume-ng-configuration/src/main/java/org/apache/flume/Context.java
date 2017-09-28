@@ -33,6 +33,7 @@ import com.google.common.collect.Maps;
  */
 public class Context {
 
+  //context核心的数据结构其实是一个Map
   private Map<String, String> parameters;
 
   public Context() {
