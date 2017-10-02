@@ -38,6 +38,7 @@ public interface Interceptor {
    * @return Original or modified event, or {@code null} if the Event
    * is to be dropped (i.e. filtered out).
    */
+  /* 处理单个的event */
   public Event intercept(Event event);
 
   /**
@@ -48,11 +49,13 @@ public interface Interceptor {
    * Also, this method MUST NOT return {@code null}. If all events are dropped,
    * then an empty List is returned.
    */
+  /* 批量处理event, 处理event list */
   public List<Event> intercept(List<Event> events);
 
   /**
    * Perform any closing / shutdown needed by the Interceptor.
    */
+  /* 做一些清理动作 */
   public void close();
 
   /** Builder implementations MUST have a no-arg constructor */

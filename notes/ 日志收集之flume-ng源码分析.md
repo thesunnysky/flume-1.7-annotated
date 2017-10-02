@@ -28,9 +28,9 @@
 
 ​         channel中实现了memorychannel；memory channel不提供数据可靠性，当agent down掉后，memory channel queue中的数据会丢失；在数据可靠性要求不高的情况下，可以使用。该目录下实现了重要的component：ChannelProcessor和ChannelSelector。对source暴露的可调用接口由ChannelProcessor的processEvent和processEventBatch完成。在ChannelProcessor处理前，会调用interceptor将一些用户配置的interceptor 对应meta信息（HOST\TIMESTAMP\STATIC\UUID等）放入到Event的header中。而ChannelSelector提供了两种实现：replicating和multiplexing：
 
-​                           replicating：将数据从source复制到多个channel中，每个channel有一份source的数据；
+replicating：将数据从source复制到多个channel中，每个channel有一份source的数据；
 
-​                          multiplexing：将数据根据配置的规则，将不同的消息路由到不同的channel中；所有channel的数据的集合为原始source的一份数据；
+multiplexing：将数据根据配置的规则，将不同的消息路由到不同的channel中；所有channel的数据的集合为原始source的一份数据；
 
   sink：
 

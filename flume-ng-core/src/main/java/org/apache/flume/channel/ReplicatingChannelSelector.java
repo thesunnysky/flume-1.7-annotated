@@ -60,14 +60,17 @@ public class ReplicatingChannelSelector extends AbstractChannelSelector {
 
   @Override
   public void configure(Context context) {
+    //从context中获取所有的option channel name 组成的string, 用空格分隔
     String optionalList = context.getString(CONFIG_OPTIONAL);
     requiredChannels = new ArrayList<Channel>(getAllChannels());
     Map<String, Channel> channelNameMap = getChannelNameMap();
     if (optionalList != null && !optionalList.isEmpty()) {
       for (String optional : optionalList.split("\\s+")) {
+        //将optional channel 从requiredChannel中移除
         Channel optionalChannel = channelNameMap.get(optional);
         requiredChannels.remove(optionalChannel);
         if (!optionalChannels.contains(optionalChannel)) {
+          //将optional channel 中没有的channel 加入到 optionalChannel中
           optionalChannels.add(optionalChannel);
         }
       }

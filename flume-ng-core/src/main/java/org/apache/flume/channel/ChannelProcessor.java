@@ -51,6 +51,14 @@ import org.slf4j.LoggerFactory;
  * channels are
  * {@linkplain ChannelSelector#getOptionalChannels(Event) optional}.
  */
+/**
+ * channel processor  暴露出了向channel中put Event的操作;
+ * channel Processor的主要功能时间event(单个的event)/events(list, 批量的操作)放入到对应的channel中,
+ * 其中channel 可分为required channel 和 optional channel,
+ * 为了区分 required channel 和 optional channel, channel processor中还实例化了channel selector
+ * 来确定那些channel是必选的,哪些channel是可选的;
+ * channel processor 实例化了interceptorChain, channelProcessor的操作中有对interceptorChain的基本操作操作;
+ */
 public class ChannelProcessor implements Configurable {
 
   private static final Logger LOG = LoggerFactory.getLogger(
@@ -64,10 +72,12 @@ public class ChannelProcessor implements Configurable {
     this.interceptorChain = new InterceptorChain();
   }
 
+  /* 初始化 interceptor chain */
   public void initialize() {
     interceptorChain.initialize();
   }
 
+  /*  关闭 interceptor chain */
   public void close() {
     interceptorChain.close();
   }
@@ -77,12 +87,14 @@ public class ChannelProcessor implements Configurable {
    *
    * @param context
    */
+  /* 从 context 中配置Interceptor, 入参为 Context 对象 */
   @Override
   public void configure(Context context) {
     configureInterceptors(context);
   }
 
   // WARNING: throws FlumeException (is that ok?)
+  /* 从 context 中配置Interceptor */
   private void configureInterceptors(Context context) {
 
     List<Interceptor> interceptors = Lists.newLinkedList();
@@ -142,6 +154,7 @@ public class ChannelProcessor implements Configurable {
    * @param events A list of events to put into the configured channels.
    * @throws ChannelException when a write to a required channel fails.
    */
+  /*  批量将 events 放到对应channel中 */
   public void processEventBatch(List<Event> events) {
     Preconditions.checkNotNull(events, "Event list must not be null");
 
@@ -156,6 +169,7 @@ public class ChannelProcessor implements Configurable {
     for (Event event : events) {
       List<Channel> reqChannels = selector.getRequiredChannels(event);
 
+      //将events放到对应channel的eventQueue中
       for (Channel ch : reqChannels) {
         List<Event> eventQueue = reqChannelQueue.get(ch);
         if (eventQueue == null) {
@@ -250,6 +264,7 @@ public class ChannelProcessor implements Configurable {
    * @param event The event to put into the configured channels.
    * @throws ChannelException when a write to a required channel fails.
    */
+  /*  将单个 events 放到对应channel中 */
   public void processEvent(Event event) {
 
     event = interceptorChain.intercept(event);

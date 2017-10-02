@@ -30,6 +30,10 @@ import org.apache.flume.conf.Configurable;
  * will push the incoming events to.
  * </p>
  */
+/**
+ * Flume中channel选择器（selector.type配置）必须实现ChannelSelector接口，
+ * 实现了该接口的类主要作用是告诉Source中接收到的Event应该发送到哪些Channel，
+ */
 public interface ChannelSelector extends NamedComponent, Configurable {
 
   /**

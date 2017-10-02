@@ -918,4 +918,4 @@ Failover Sink Processor能够实现failover功能，具体流程类似load balan
 
 有关Flume NG更多配置及其说明，请参考官方用户手册，非常详细。
 
-​	原文地址：http://shiyanjun.cn/archives/915.html
+原文地址：http://shiyanjun.cn/archives/915.html
