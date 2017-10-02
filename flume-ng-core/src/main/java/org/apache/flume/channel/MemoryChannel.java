@@ -203,6 +203,7 @@ public class MemoryChannel extends BasicChannelSemantics {
   private volatile Integer transCapacity;
   private volatile int keepAlive;
   private volatile int byteCapacity;
+  //用来记录上一次配置中byteCapacity配置的大小
   private volatile int lastByteCapacity;
   private volatile int byteCapacityBufferPercentage;
   private Semaphore bytesRemaining;
@@ -219,6 +220,10 @@ public class MemoryChannel extends BasicChannelSemantics {
    * <li>byteCapacity = type long that defines the max number of bytes used for events in the queue.
    * <li>byteCapacityBufferPercentage = type int that defines the percent of buffer between byteCapacity and the estimated event size.
    * <li>keep-alive = type int that defines the number of second to wait for a queue permit
+   */
+  /**
+   * 在flume运行过程中是有可能channel等component的配置发生改变的,此时需要重新修改component的配置
+   * 这就可能需要判断之前的配置和最新的配置发生了那些变化,并做出相应的调整
    */
   @Override
   public void configure(Context context) {
@@ -295,15 +300,24 @@ public class MemoryChannel extends BasicChannelSemantics {
       bytesRemaining = new Semaphore(byteCapacity);
       lastByteCapacity = byteCapacity;
     } else {
+      /* 新配置中的byteCapacity 大于上一次配置的lastByteCapacity,则新的bytCapacity增大了,需要在
+       * byteRemaining中增加相应的差值才能保证byteRemaining中的容量和最新的byteCapacity相等;
+       * Semaphore.release() 是在信号量中增加许可的操作,Semaphore可以同台修改日permits的大小,不用重新new
+       */
       if (byteCapacity > lastByteCapacity) {
         bytesRemaining.release(byteCapacity - lastByteCapacity);
         lastByteCapacity = byteCapacity;
       } else {
         try {
+          /* 新配置的byteCapacity小于之前的lastByteCapacity,需要缩减信号量,这里并没有重新new 一个Semaphore,
+           * 而是从之前的信号量固定的Acquired信号量之间的差值;
+           * 这里用的tryAcquire()方法,如果在规定的时间内无法获取所要缩减的信号量,该方法将会抛出异常,线程就会中断
+           */
           if (!bytesRemaining.tryAcquire(lastByteCapacity - byteCapacity, keepAlive,
                                          TimeUnit.SECONDS)) {
             LOGGER.warn("Couldn't acquire permits to downsize the byte capacity, resizing has been aborted");
           } else {
+            // 更新lastByteCapacity
             lastByteCapacity = byteCapacity;
           }
         } catch (InterruptedException e) {
@@ -317,15 +331,19 @@ public class MemoryChannel extends BasicChannelSemantics {
     }
   }
 
+  // resize LinkedBlockingDeque, 修改channel的容量后需要修改队列的容量
   private void resizeQueue(int capacity) throws InterruptedException {
     int oldCapacity;
     synchronized (queueLock) {
+      //计算就的queue的capacity,queue.size(),当前queue中有多少元素, remainingCapacity(), queue剩余的量
       oldCapacity = queue.size() + queue.remainingCapacity();
     }
 
     if (oldCapacity == capacity) {
+      //queue的容量大小不变,不需要做任何操作,直接返回
       return;
     } else if (oldCapacity > capacity) {
+      //queue的容量缩小了,首先需要先把信号量的permits降低,然后再改变queue的capacity
       if (!queueRemaining.tryAcquire(oldCapacity - capacity, keepAlive, TimeUnit.SECONDS)) {
         LOGGER.warn("Couldn't acquire permits to downsize the queue, resizing has been aborted");
       } else {
@@ -337,10 +355,12 @@ public class MemoryChannel extends BasicChannelSemantics {
       }
     } else {
       synchronized (queueLock) {
+        //capacity的容量增加了,新建一个新的queue,然后将其中的剩余的event加入到newQueue中;
         LinkedBlockingDeque<Event> newQueue = new LinkedBlockingDeque<Event>(capacity);
         newQueue.addAll(queue);
         queue = newQueue;
       }
+      //增加信号量permits,要保持permits的数量和queue的容量大小相等
       queueRemaining.release(capacity - oldCapacity);
     }
   }

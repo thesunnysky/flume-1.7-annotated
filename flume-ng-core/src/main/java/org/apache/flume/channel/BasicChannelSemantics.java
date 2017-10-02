@@ -52,6 +52,9 @@ public abstract class BasicChannelSemantics extends AbstractChannel {
    * transaction begins.
    * </p>
    */
+  /**
+   * 采用延迟初始化,在getTransaction()时候才初始化
+   */
   protected void initialize() {}
 
   /**
