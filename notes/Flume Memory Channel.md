@@ -495,3 +495,44 @@ private class MemoryTransaction extends BasicTransactionSemantics {
 }
 ```
 
+## MemoryChannel 的隐患
+
+[参考][http://www.cnblogs.com/lxf20061900/p/3638604.html]
+
+该类有一个内部类MemoryTransaction是mem-channel从source取（put）数据、给（take）sink的操作类。其初始化时会创建两个LinkedBlockingDeque，一个是takeList用于sink的take；一个是putList用于source的put，两个队列的容量都是事务的event最大容量transCapacity。两个队列是用于事务回滚rollback和提交commit的。
+
+Source交给channel处理的一般是调用ChannelProcessor类的processEventBatch(List<Event> events)方法或者processEvent(Event event)方法；在sink端可以直接使用channel.take()方法获取其中的一条event数据。这俩方法在将event提交至channel时，都需要：
+
+```
+一、获取channel列表。List<Channel> requiredChannels = selector.getRequiredChannels(event)；
+
+二、通过channel获取Transaction。Transaction tx = reqChannel.getTransaction()；
+
+三、tx.begin()；
+
+四、reqChannel.put(event)(在sink中这是take(event)方法)；
+
+五、tx.commit();
+
+六、tx.rollback();
+
+七、tx.close();
+```
+
+* 上面的三~七中的方法，最终调用的是MemoryTransaction的doBegin(未重写，默认空方法)、doPut、doCommit、doRollback、doClose(未重写，默认空方法)方法。
+* 其中doPut方法，先计算event的大小可以占用bytesRemaining的多大空间，然后在有限的时间内等待获取写入空间，获取之后写入putList暂存。
+* doTake方法，先检查takeList的剩余容量；再检查是否有许可进行取操作(queueStored使得可以不用阻塞其它线程获取许可信息)；然后同步的从queue中取一个event，再放入takeList，并返回此event。
+* doCommit方法，不管在sink还是source端都会调用。首先检查queue队列中是否有足够空间放得下从source过来的数据，依据就是queueRemaining是否有remainingChange = takeList.size-putList.size个许可。然后是将putList中的所有数据提交到内存队列queue之中，并将putList和takeList清空。清空表明：运行到这步说明takeList中的数据无需再保留，putList中的数据可以放入queue中。由于在doTake中从queue取数据，所以queueStored在减，但在doCommit中会把putList中的数据放入queue所以需要增加queueStored：queueStored.release(puts)；bytesRemaining在doPut中获得了一些许可会减少，在doCommit中由于takeList会清空所有会增加bytesRemaining：bytesRemaining.release(takeByteCounter);而queueRemaining在doPut和doTake中并未进行操作，而且doCommit方法在sink和source中都会调用，故而在此方法中修改takeList和putList的差值即可：queueRemaining.release(remainingChange)(在此有个细节，在doCommit的开始remainingChange如果小于0，说明剩余空间不足以放入整个putList,要么超时报错退出；要么获得足够的许可，如果是后者的话就不需要再调整queueRemaining因为是在现在的基础之上减，如果remainingChange大于0，说明去除takeList大小后不仅足以放入整个putList，而且还有剩余，queueRemaining需要释放remainingChange)。其他就是修改计数器。
+* doRollback方法是在上面三、四、五出现异常的时候调用的，用于事务回滚。不管是在sink还是source中，都会调用。将takeList中的所有数据重新放回queue中：
+
+```
+while(!takeList.isEmpty()) {
+	queue.addFirst(takeList.removeLast());
+	//回滚时，重新放回queue中。可能会重复（commit阶段出错，已经take的数据需要回滚，批量的情况）
+ }
+```
+
+然后清空putList:
+
+* putList.clear(); //这个方法可能发生在put中，也可能发生在take中，所以需要同步清空。可能会丢数据（还在put的阶段，没到commit阶段，出错会导致回滚，导致已经put还未放入queue中的数据会丢失）由于putList清空了，所以bytesRemaining.release(putByteCounter)；由于takeList又返回给了queue所以queue的量增加了：queueStored.release(takes)。
+* 在分层的分布式flume中，一旦汇总节点中断，而采集节点使用mem，则采集会大量的丢失数据，因为channel会因为put而快速的填满，填满之后再调用put会迸发异常，致使出现异常引起事务回滚，回滚会直接清空putList，使数据丢失，只留下channel中的数据(这些数据是一开始放入进去的后来的会丢失)。putList.offer会因为填满数据返回false，add方法如果队列满了则会爆异常。
