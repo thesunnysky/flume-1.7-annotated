@@ -60,10 +60,14 @@ public class MemoryChannel extends BasicChannelSemantics {
   private static final Integer defaultKeepAlive = 3;
 
   private class MemoryTransaction extends BasicTransactionSemantics {
+    //用来缓存从channel的queue中take掉的Event
     private LinkedBlockingDeque<Event> takeList;
+    //用来缓存put 到 channel的queue中的Event
     private LinkedBlockingDeque<Event> putList;
     private final ChannelCounter channelCounter;
+    //用来记录从put channel queue 的event的slot数,这里使用了slot(槽)的概念,每个槽100byte,每个event至少占用1个slot
     private int putByteCounter = 0;
+    //用来记录从channel的queue中take掉的Event的slot数 以100为单位
     private int takeByteCounter = 0;
 
     public MemoryTransaction(int transCapacity, ChannelCounter counter) {
@@ -73,17 +77,29 @@ public class MemoryChannel extends BasicChannelSemantics {
       channelCounter = counter;
     }
 
+    /**
+     * MemoryTransaction中并没有重写doBegin()方法,调用的还是父类的方法
+     */
+
     @Override
     protected void doPut(Event event) throws InterruptedException {
       channelCounter.incrementEventPutAttemptCount();
+      /* 这里用到了byteCapacitySlotSize,每次在更新
+       * 这里用到了所有的数据都是这么一个形式的呢
+       */
       int eventByteSize = (int) Math.ceil(estimateEventSize(event) / byteCapacitySlotSize);
 
+      /* 这里使用的是offer方法,该方法不会阻塞,如果发现此时队列不可用(既不能立即成功将数据插入到队列中)则返回;
+       * 这里可以关注一下该队列的add(),put()和offer()的区别
+       */
       if (!putList.offer(event)) {
+        // 队列已满,抛出异常
         throw new ChannelException(
             "Put queue for MemoryTransaction of capacity " +
             putList.size() + " full, consider committing more frequently, " +
             "increasing capacity or increasing thread count");
       }
+      //更新putByteCounter
       putByteCounter += eventByteSize;
     }
 
@@ -95,33 +111,48 @@ public class MemoryChannel extends BasicChannelSemantics {
             takeList.size() + " full, consider committing more frequently, " +
             "increasing capacity, or increasing thread count");
       }
+      //先获取信号量
       if (!queueStored.tryAcquire(keepAlive, TimeUnit.SECONDS)) {
         return null;
       }
       Event event;
+      //获取队列的锁, 然后从队列中取出Event
       synchronized (queueLock) {
         event = queue.poll();
       }
       Preconditions.checkNotNull(event, "Queue.poll returned NULL despite semaphore " +
           "signalling existence of entry");
+      //将从channel杜列中取出的event再放入到takeList中
       takeList.put(event);
 
+      //更新eventByteSize 和 takeByteCounter
       int eventByteSize = (int) Math.ceil(estimateEventSize(event) / byteCapacitySlotSize);
       takeByteCounter += eventByteSize;
 
       return event;
     }
 
+    /**
+     * 向channel的queue中commit数据(的变化)
+     * @throws InterruptedException
+     */
     @Override
     protected void doCommit() throws InterruptedException {
+      //计算此次commit时queue中event byte的变化量
       int remainingChange = takeList.size() - putList.size();
       if (remainingChange < 0) {
+        /* 表明此时put的size是大于take的size的,需要往队里中增加响应byte的容量;
+         * 在增加的时候首先需要先获得对应byte容量的信号量,表明此时还有足够的byteCapacity用来增加数据
+         */
         if (!bytesRemaining.tryAcquire(putByteCounter, keepAlive, TimeUnit.SECONDS)) {
           throw new ChannelException("Cannot commit transaction. Byte capacity " +
               "allocated to store event body " + byteCapacity * byteCapacitySlotSize +
               "reached. Please increase heap space/byte capacity allocated to " +
               "the channel as the sinks may not be keeping up with the sources");
         }
+        /* -remainingChange是最终queue中增加的size,最终往queue中增加的size需要先获取对应的信号量
+         * 表示queue中有对应的容量允许你增加
+         */
         if (!queueRemaining.tryAcquire(-remainingChange, keepAlive, TimeUnit.SECONDS)) {
           bytesRemaining.release(putByteCounter);
           throw new ChannelFullException("Space for commit to queue couldn't be acquired." +
@@ -130,6 +161,7 @@ public class MemoryChannel extends BasicChannelSemantics {
       }
       int puts = putList.size();
       int takes = takeList.size();
+      //将putList中的数据放入到Channel的queue中
       synchronized (queueLock) {
         if (puts > 0) {
           while (!putList.isEmpty()) {
@@ -138,17 +170,25 @@ public class MemoryChannel extends BasicChannelSemantics {
             }
           }
         }
+        //清空putList和takeList
         putList.clear();
         takeList.clear();
       }
+      //将take掉的byte对应的信号量释放
       bytesRemaining.release(takeByteCounter);
+      //清空计数器
       takeByteCounter = 0;
       putByteCounter = 0;
 
+      //queue中新增加event,在queueStored中增加对应的信号量,表明此时有更多的event可以从queue中取出来
       queueStored.release(puts);
+      /* 此时表示take size是大于 put的size的,queue中增加了元素(有更多的元素Remaining),需要释放(增加)相应的信号量
+       * 同时表示上面的if判断不成功
+       */
       if (remainingChange > 0) {
         queueRemaining.release(remainingChange);
       }
+      //更新channelCounter中的计数
       if (puts > 0) {
         channelCounter.addToEventPutSuccessCount(puts);
       }
@@ -156,9 +196,13 @@ public class MemoryChannel extends BasicChannelSemantics {
         channelCounter.addToEventTakeSuccessCount(takes);
       }
 
+      //更新channel size
       channelCounter.setChannelSize(queue.size());
     }
 
+    /**
+     * 事务回滚操作,也就是将之前从queue中take到takeList中的数据全部恢复到queue中
+     */
     @Override
     protected void doRollback() {
       int takes = takeList.size();
@@ -167,15 +211,23 @@ public class MemoryChannel extends BasicChannelSemantics {
             "Not enough space in memory channel " +
             "queue to rollback takes. This should never happen, please report");
         while (!takeList.isEmpty()) {
+          //takeList 的倒序取出插入到queue的头部
           queue.addFirst(takeList.removeLast());
         }
+        /*将putList中数据清空,putList中的数据都是还没有来的及commit到queue中的数据
+         */
         putList.clear();
       }
+      /* putByteCounter是RollBack时往queue中新写入的数据,此时表示queue中有了更多的数据
+       * 需要增加相应的信号量来与之对应
+       */
       bytesRemaining.release(putByteCounter);
       putByteCounter = 0;
       takeByteCounter = 0;
 
+      //更新queueStored的信号量
       queueStored.release(takes);
+      //更新channel size
       channelCounter.setChannelSize(queue.size());
     }
 
@@ -183,8 +235,10 @@ public class MemoryChannel extends BasicChannelSemantics {
 
   // lock to guard queue, mainly needed to keep it locked down during resizes
   // it should never be held through a blocking operation
+  //queue的锁,所有对channel queue的操作都需要先获得这个锁
   private Object queueLock = new Object();
 
+  //channel的queue,这个也是Memory Channel的核心的数据结构,这个queue中存储了所有在channel event
   @GuardedBy(value = "queueLock")
   private LinkedBlockingDeque<Event> queue;
 
@@ -192,11 +246,13 @@ public class MemoryChannel extends BasicChannelSemantics {
   // we maintain the remaining permits = queue.remaining - takeList.size()
   // this allows local threads waiting for space in the queue to commit without denying access to the
   // shared lock to threads that would make more space on the queue
+  //queue中剩余容量的信号量,该信号量和queue剩余的容量是相同的,表明当前queue中还有多少剩余容量
   private Semaphore queueRemaining;
 
   // used to make "reservations" to grab data from the queue.
   // by using this we can block for a while to get data without locking all other threads out
   // like we would if we tried to use a blocking call on queue
+  //queue中当前存储的event的数量,
   private Semaphore queueStored;
 
   // maximum items in a transaction queue
@@ -206,6 +262,7 @@ public class MemoryChannel extends BasicChannelSemantics {
   //用来记录上一次配置中byteCapacity配置的大小
   private volatile int lastByteCapacity;
   private volatile int byteCapacityBufferPercentage;
+  //针对byteCapacity设置的信号量
   private Semaphore bytesRemaining;
   private ChannelCounter channelCounter;
 
@@ -381,6 +438,10 @@ public class MemoryChannel extends BasicChannelSemantics {
     super.stop();
   }
 
+  /**
+   * 重写的父类的方法
+   * @return
+   */
   @Override
   protected BasicTransactionSemantics createTransaction() {
     return new MemoryTransaction(transCapacity, channelCounter);
