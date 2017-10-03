@@ -71,6 +71,7 @@ public class TaildirSource extends AbstractSource implements
   private SourceCounter sourceCounter;
   private ReliableTaildirEventReader reader;
   private ScheduledExecutorService idleFileChecker;
+  //position file writer 线程, flume会起一个线程定期的更新position file
   private ScheduledExecutorService positionWriter;
   private int retryInterval = 1000;
   private int maxRetryInterval = 5000;
@@ -114,8 +115,10 @@ public class TaildirSource extends AbstractSource implements
     positionWriter.scheduleWithFixedDelay(new PositionWriterRunnable(),
         writePosInitDelay, writePosInterval, TimeUnit.MILLISECONDS);
 
+    //父类方法, 设置source的生命周期状态
     super.start();
     logger.debug("TaildirSource started");
+    //?
     sourceCounter.start();
   }
 
@@ -149,6 +152,21 @@ public class TaildirSource extends AbstractSource implements
         positionFilePath, skipToEnd, byteOffsetHeader, idleTimeout, writePosInterval);
   }
 
+  /**
+   * TailDir Source的配置示例:
+   a1.sources = r1
+   a1.channels = c1
+   a1.sources.r1.type = TAILDIR
+   a1.sources.r1.channels = c1
+   a1.sources.r1.positionFile = /var/log/flume/taildir_position.json
+   a1.sources.r1.filegroups = f1 f2
+   a1.sources.r1.filegroups.f1 = /var/log/test1/example.log
+   a1.sources.r1.headers.f1.headerKey1 = value1
+   a1.sources.r1.filegroups.f2 = /var/log/test2/.*log.*
+   a1.sources.r1.headers.f2.headerKey1 = value2
+   a1.sources.r1.headers.f2.headerKey2 = value2-2
+   a1.sources.r1.fileHeader = true
+   */
   @Override
   public synchronized void configure(Context context) {
     String fileGroups = context.getString(FILE_GROUPS);
@@ -160,8 +178,10 @@ public class TaildirSource extends AbstractSource implements
         "Mapping for tailing files is empty or invalid: '" + FILE_GROUPS_PREFIX + "'");
 
     String homePath = System.getProperty("user.home").replace('\\', '/');
+    //设置positionFile的Path,如果配置文件中没有配置默认是/home/user/.flume/taildir_position.json
     positionFilePath = context.getString(POSITION_FILE, homePath + DEFAULT_POSITION_FILE);
     Path positionFile = Paths.get(positionFilePath);
+    //生成了positionFile的目录,但是可能这个文件的父目录并不存在,应该是如果不存在就创建,但是如果存在呢,return?
     try {
       Files.createDirectories(positionFile.getParent());
     } catch (IOException e) {
@@ -169,6 +189,9 @@ public class TaildirSource extends AbstractSource implements
     }
     headerTable = getTable(context, HEADERS_PREFIX);
     batchSize = context.getInteger(BATCH_SIZE, DEFAULT_BATCH_SIZE);
+    /* skipToEnd参数的作用: boolean变量,表示是否在positionfile中没有该文件的的position信息时直接跳到该文件的末尾,
+     * 默认值是false, 表示将从文件头部开始读取该文件
+     */
     skipToEnd = context.getBoolean(SKIP_TO_END, DEFAULT_SKIP_TO_END);
     byteOffsetHeader = context.getBoolean(BYTE_OFFSET_HEADER, DEFAULT_BYTE_OFFSET_HEADER);
     idleTimeout = context.getInteger(IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT);
@@ -200,6 +223,7 @@ public class TaildirSource extends AbstractSource implements
     return result;
   }
 
+  //Table<Row, Col, Value>
   private Table<String, String, String> getTable(Context context, String prefix) {
     Table<String, String, String> table = HashBasedTable.create();
     for (Entry<String, String> e : context.getSubProperties(prefix).entrySet()) {

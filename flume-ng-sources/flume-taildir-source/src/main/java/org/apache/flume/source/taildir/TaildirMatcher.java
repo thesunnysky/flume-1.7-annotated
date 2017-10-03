@@ -63,6 +63,14 @@ import java.util.concurrent.TimeUnit;
  * @see ReliableTaildirEventReader
  * @see TaildirSourceConfigurationConstants
  */
+
+/**　
+ * 在taildir的filegroup配置中是允许对文件名用正则表达式来配置的,(文件夹不允许),这个类的主要作用是返回时返回符合
+ * 正则表达式规则文件;
+ * flume在实现的时候使用了lasy cache的方式,flume会检测父文件夹的修改时间,如果父文件夹的最后修改时间更新了,表示
+ * 文件夹中有文件的删除或者创建动作,否则的话表示文件只有内容发生了改变,而没有发生过文件的删除和创建的动作,这样flume
+ * 就拿着上次缓存过的文件List做操作,而不用重新按照文件名的正则表达式重新去匹配一遍文件名
+ */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public class TaildirMatcher {
@@ -111,6 +119,10 @@ public class TaildirMatcher {
    *                             parent directories. Don't set when local system clock is not used
    *                             for stamping mtime (eg: remote filesystems)
    * @see TaildirSourceConfigurationConstants
+   */
+  /* 在用正则表达式配置taildir的filegroup时, 指定的路径中文件夹名不允许出现通配符,也就是说问价夹的名字是必须是指定的
+   * 并且文件夹必须是已经存在的,并且用户可以访问, 只有指定文件夹的文件名可以用正则表达式来表示
+   * 在获取文件的时候不会返回子文件夹以及子文件夹下的文件
    */
   TaildirMatcher(String fileGroup, String filePattern, boolean cachePatternMatching) {
     // store whatever came from configuration
