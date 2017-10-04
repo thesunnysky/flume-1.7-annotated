@@ -35,6 +35,10 @@ import com.google.common.base.Preconditions;
  * results without any additional handling. Suitable for all sinks that aren't
  * assigned to a group.
  */
+/*
+ * DefaultSinkProcessor 是flume的磨人的SinkProcessor,如果配置文件中没有配置processors,
+ * 那起作用的就是DefaultSinkProcessor
+ */
 public class DefaultSinkProcessor implements SinkProcessor, ConfigurableComponent {
   private Sink sink;
   private LifecycleState lifecycleState;
@@ -62,11 +66,13 @@ public class DefaultSinkProcessor implements SinkProcessor, ConfigurableComponen
   public void configure(Context context) {
   }
 
+  //单纯的调用了sink的process()方法,没有实现任何额外其他的功能
   @Override
   public Status process() throws EventDeliveryException {
     return sink.process();
   }
 
+  //由于DefaultSinkProcessor只支持单一Sink的情况,所以这方法中对入参的size做了检查
   @Override
   public void setSinks(List<Sink> sinks) {
     Preconditions.checkNotNull(sinks);

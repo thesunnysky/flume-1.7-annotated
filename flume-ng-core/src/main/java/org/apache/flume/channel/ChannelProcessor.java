@@ -160,16 +160,19 @@ public class ChannelProcessor implements Configurable {
 
     events = interceptorChain.intercept(events);
 
+    //存放的是要放大reqChannel中List<Event>
     Map<Channel, List<Event>> reqChannelQueue =
         new LinkedHashMap<Channel, List<Event>>();
 
+    //存放的是要放大optChannel中List<Event>
     Map<Channel, List<Event>> optChannelQueue =
         new LinkedHashMap<Channel, List<Event>>();
 
+    //将events放到对应channel的eventQueue中
     for (Event event : events) {
       List<Channel> reqChannels = selector.getRequiredChannels(event);
 
-      //将events放到对应channel的eventQueue中
+      //将events放到对应reqChannel的eventQueue中
       for (Channel ch : reqChannels) {
         List<Event> eventQueue = reqChannelQueue.get(ch);
         if (eventQueue == null) {
@@ -181,6 +184,7 @@ public class ChannelProcessor implements Configurable {
 
       List<Channel> optChannels = selector.getOptionalChannels(event);
 
+      //将events放到对应optChannel的eventQueue中
       for (Channel ch : optChannels) {
         List<Event> eventQueue = optChannelQueue.get(ch);
         if (eventQueue == null) {

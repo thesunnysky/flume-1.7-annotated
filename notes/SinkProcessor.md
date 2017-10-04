@@ -1,5 +1,9 @@
 # SinkProcessor
 
+Sink groups允许组织多个sink到一个实体上。 Sink processors能够提供在组内所有Sink之间实现负载均衡的能力，而且在失败的情况下能够进行故障转移从一个Sink到另一个Sink。
+
+简单的说就是一个source 对应一个Sinkgroups，即多个sink,这里实际上与第六节的复用/复制情况差不多，只是这里考虑的是可靠性与性能，即故障转移与负载均衡的设置。
+
 下面是官方配置：
 
 | **Property Name**  | **Default** | **Description**                          |
@@ -67,26 +71,26 @@ a1.sinkgroups.g1.processor.maxpenalty**=**10000
 3. a1.sources= r1  
 4. a1.sinks= k1 k2  
 5. a1.channels= c1 c2  
-6.    
+6. ​
 7. a1.sinkgroups= g1  
 8. a1.sinkgroups.g1.sinks= k1 k2  
 9. a1.sinkgroups.g1.processor.type= failover  
 10. a1.sinkgroups.g1.processor.priority.k1= 5  
 11. a1.sinkgroups.g1.processor.priority.k2= 10  
 12. a1.sinkgroups.g1.processor.maxpenalty= 10000  
-13.    
+13. ​
 14. \#Describe/configure the source  
 15. a1.sources.r1.type= syslogtcp  
 16. a1.sources.r1.port= 50000  
 17. a1.sources.r1.host= 192.168.233.128  
 18. a1.sources.r1.channels= c1 c2  
-19.    
+19. ​
 20. \#Describe the sink  
 21. a1.sinks.k1.type= avro  
 22. a1.sinks.k1.channel= c1  
 23. a1.sinks.k1.hostname= 192.168.233.129  
 24. a1.sinks.k1.port= 50000  
-25.    
+25. ​
 26. a1.sinks.k2.type= avro  
 27. a1.sinks.k2.channel= c2  
 28. a1.sinks.k2.hostname= 192.168.233.130  
@@ -107,17 +111,17 @@ a1.sinkgroups.g1.processor.maxpenalty**=**10000
 3. a2.sources = r1  
 4. a2.sinks = k1  
 5. a2.channels = c1  
-6.    
+6. ​
 7. \# Describe/configure the source  
 8. a2.sources.r1.type = avro  
 9. a2.sources.r1.channels = c1  
 10. a2.sources.r1.bind = 192.168.233.129  
 11. a2.sources.r1.port = 50000  
-12.    
+12. ​
 13. \# Describe the sink  
 14. a2.sinks.k1.type = logger  
 15. a2.sinks.k1.channel = c1  
-16.    
+16. ​
 17. \# Use a channel which buffers events inmemory  
 18. a2.channels.c1.type = memory  
 19. a2.channels.c1.capacity = 1000  
@@ -132,17 +136,17 @@ a1.sinkgroups.g1.processor.maxpenalty**=**10000
 3. a3.sources = r1  
 4. a3.sinks = k1  
 5. a3.channels = c1  
-6.    
+6. ​
 7. \# Describe/configure the source  
 8. a3.sources.r1.type = avro  
 9. a3.sources.r1.channels = c1  
 10. a3.sources.r1.bind = 192.168.233.130  
 11. a3.sources.r1.port = 50000  
-12.    
+12. ​
 13. \# Describe the sink  
 14. a3.sinks.k1.type = logger  
 15. a3.sinks.k1.channel = c1  
-16.    
+16. ​
 17. \# Use a channel which buffers events inmemory  
 18. a3.channels.c1.type = memory  
 19. a3.channels.c1.capacity = 1000  
@@ -229,25 +233,25 @@ a1.sinkgroups.g1.processor.selector**=**random
 3. a1.sources = r1  
 4. a1.sinks = k1 k2  
 5. a1.channels = c1  
-6.    
+6. ​
 7. a1.sinkgroups = g1  
 8. a1.sinkgroups.g1.sinks = k1 k2  
 9. a1.sinkgroups.g1.processor.type =load_balance  
 10. a1.sinkgroups.g1.processor.backoff = true  
 11. a1.sinkgroups.g1.processor.selector =round_robin  
-12.    
+12. ​
 13. \# Describe/configure the source  
 14. a1.sources.r1.type = syslogtcp  
 15. a1.sources.r1.port = 50000  
 16. a1.sources.r1.host = 192.168.233.128  
 17. a1.sources.r1.channels = c1  
-18.    
+18. ​
 19. \# Describe the sink  
 20. a1.sinks.k1.type = avro  
 21. a1.sinks.k1.channel = c1  
 22. a1.sinks.k1.hostname = 192.168.233.129  
 23. a1.sinks.k1.port = 50000  
-24.    
+24. ​
 25. a1.sinks.k2.type = avro  
 26. a1.sinks.k2.channel = c1  
 27. a1.sinks.k2.hostname = 192.168.233.130  
@@ -281,8 +285,6 @@ flume-ng agent -cconf -f conf/load_sink_case14.conf -n a1
 
 启动成功后
 
- 
-
 打开另一个终端输入，往侦听端口送数据
 
 echo "loadbanlancetest1" | nc 192.168.233.128 50000
@@ -305,6 +307,175 @@ echo "loadbantest5" | nc 192.168.233.128 50000
 
 Sink Processors测试完毕
 
-
-
 原文地址：http://blog.csdn.net/looklook5/article/details/40583815
+
+
+
+---
+
+#SinkProcessor代码
+
+### SinkProcessor
+
+- flume提供了一个对于一个agent配置多个sink的功能,SinkProcessor接口就提供了对这种多sink的功能;
+- SinkProcessor一般来说是在SinkRunner中实例化并调用的;
+- 根据自己的了解,如果自己实现的Sink不准备支持多Sink的情况下,可以不用考虑SinkProcessor接口,直接实现AbstractSink类就可以了;
+
+```
+public interface SinkProcessor extends LifecycleAware, Configurable {
+  /**
+   * <p>Handle a request to poll the owned sinks.</p>
+   *
+   * <p>The processor is expected to call {@linkplain Sink#process()} on
+   *  whatever sink(s) appropriate, handling failures as appropriate and
+   *  throwing {@link EventDeliveryException} when there is a failure to
+   *  deliver any events according to the delivery policy defined by the
+   *  sink processor implementation. See specific implementations of this
+   *  interface for delivery behavior and policies.</p>
+   *
+   * @return Returns {@code READY} if events were successfully consumed,
+   * or {@code BACKOFF} if no events were available in the channel to consume.
+   * @throws EventDeliveryException if the behavior guaranteed by the processor
+   * couldn't be carried out.
+   */
+  Status process() throws EventDeliveryException;
+
+  /**
+   * <p>Set all sinks to work with.</p>
+   *
+   * <p>Sink specific parameters are passed to the processor via configure</p>
+   *
+   * @param sinks A non-null, non-empty list of sinks to be chosen from by the
+   * processor
+   */
+  void setSinks(List<Sink> sinks);
+```
+
+- SinkProcessor中的process()方法,将直接调用各个sink的process()方法;
+
+### AbstractSinkProcessor
+
+AbstractSinkProcessor 实现了SinkProcessor接口,实现了一些基本的操作:
+
+- 实例化了sinkList;
+- 实现了些基本的方法,给子类的实现提供了一定的方便;
+
+```
+public abstract class AbstractSinkProcessor implements SinkProcessor {
+
+  private LifecycleState state;
+
+  // List of sinks as specified
+  private List<Sink> sinkList;
+
+  @Override
+  public void start() {
+    for (Sink s : sinkList) {
+      s.start();
+    }
+
+    state = LifecycleState.START;
+  }
+
+  @Override
+  public void stop() {
+    for (Sink s : sinkList) {
+      s.stop();
+    }
+    state = LifecycleState.STOP;
+  }
+
+  @Override
+  public LifecycleState getLifecycleState() {
+    return state;
+  }
+
+  @Override
+  public void setSinks(List<Sink> sinks) {
+    List<Sink> list = new ArrayList<Sink>();
+    list.addAll(sinks);
+    sinkList = Collections.unmodifiableList(list);
+  }
+
+  protected List<Sink> getSinks() {
+    return sinkList;
+  }
+}
+```
+
+参考文献: http://holynull.leanote.com/post/4-2
+
+下面来看一下flume中定义的三种SinkProcessor
+
+### DefaultSinkProcessor
+
+DefaultSinkProcessor 是flume的磨人的SinkProcessor,如果配置文件中没有配置processors, 那起作用的就是DefaultSinkProcessor;
+
+ 默认的sink processor仅接受单独一个sink。不必对单个sink使用processor。对单个sink可以使用source-channel-sink的方式。
+
+代码的注释中也提到了, DefaultSinkProcessor只支持单Sink的情况, 并且没有做任何额外其他的处理;
+
+```java
+/**
+ * Default sink processor that only accepts a single sink, passing on process
+ * results without any additional handling. Suitable for all sinks that aren't
+ * assigned to a group.
+ */
+public class DefaultSinkProcessor implements SinkProcessor, ConfigurableComponent {
+  private Sink sink;
+  private LifecycleState lifecycleState;
+
+  @Override
+  public void start() {
+    Preconditions.checkNotNull(sink, "DefaultSinkProcessor sink not set");
+    sink.start();
+    lifecycleState = LifecycleState.START;
+  }
+
+  @Override
+  public void stop() {
+    Preconditions.checkNotNull(sink, "DefaultSinkProcessor sink not set");
+    sink.stop();
+    lifecycleState = LifecycleState.STOP;
+  }
+
+  @Override
+  public LifecycleState getLifecycleState() {
+    return lifecycleState;
+  }
+
+  @Override
+  public void configure(Context context) {
+  }
+
+  //单纯的调用了sink的process()方法,没有实现任何额外其他的功能
+  @Override
+  public Status process() throws EventDeliveryException {
+    return sink.process();
+  }
+
+  @Override
+  public void setSinks(List<Sink> sinks) {
+    Preconditions.checkNotNull(sinks);
+    Preconditions.checkArgument(sinks.size() == 1, "DefaultSinkPolicy can "
+        + "only handle one sink, "
+        + "try using a policy that supports multiple sinks");
+    sink = sinks.get(0);
+  }
+
+  @Override
+  public void configure(ComponentConfiguration conf) {
+
+  }
+}
+```
+
+### FailOverSinkProcessor
+
+摘自前面的话:
+
+> FailoverSink Processor会通过配置维护了一个优先级列表。保证每一个有效的事件都会被处理。
+>
+> 故障转移的工作原理是将连续失败sink分配到一个池中，在那里被分配一个冷冻期，在这个冷冻期里，这个sink不会做任何事。一旦sink成功发送一个event，sink将被还原到live 池中。
+>
+>  在这配置中，要设置sinkgroups processor为failover，需要为所有的sink分配优先级，所有的优先级数字必须是唯一的，这个得格外注意。此外，failover time的上限可以通过maxpenalty 属性来进行设置。
