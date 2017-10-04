@@ -55,7 +55,9 @@ public class TailFile {
   //索引值,flume为taildir中的每一个文件(它缓存过的)都设置了一个索引值
   private final long inode;
   private long pos;
+  //记录文件最后一次被flume readEvent的时间
   private long lastUpdated;
+  //表示是否是需要读取文件,意味着文件中有尚未被source读取的新的内容
   private boolean needTail;
   private final Map<String, String> headers;
   //buffer 和 oldBuffer 配合使得再用byte[]读取文件的同时也保证了最终文件内容读取时是按行读取的
@@ -147,7 +149,9 @@ public class TailFile {
     oldBuffer = new byte[0];
   }
 
-
+  /**
+   * 这些readEvents方法会由ReliableTaildirEventReader来调用从currentFile中读取events
+   */
   public List<Event> readEvents(int numEvents, boolean backoffWithoutNL,
       boolean addByteOffset) throws IOException {
     List<Event> events = Lists.newLinkedList();

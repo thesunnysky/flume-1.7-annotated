@@ -70,9 +70,18 @@ public class TaildirSource extends AbstractSource implements
 
   private SourceCounter sourceCounter;
   private ReliableTaildirEventReader reader;
+  /* flume 规定了如果在一段时间内文件没有增加新的内容,flume会将这些inactive的文件关闭掉
+   * 如果后续又有新的内容追加到这些文件中,flume会重新open该文件;
+   * 以上的这些操作flume起了一个定时调度的线程来完成,idleFileChecker就是该线程的引用
+   */
   private ScheduledExecutorService idleFileChecker;
   //position file writer 线程, flume会起一个线程定期的更新position file
   private ScheduledExecutorService positionWriter;
+  /* source尝试将event放入channel的时间间隔
+   * 如果source尝试将event放入channel失败时会一直重试直到成功将event放入到channel中
+   * retryInterval表示第一次的时间间隔,后续的每次的尝试都会增加retryInterval的时间,
+   * 最长的时间间隔是maxRetryInterval,也就是5s;
+   */
   private int retryInterval = 1000;
   private int maxRetryInterval = 5000;
   private int idleTimeout;
@@ -82,6 +91,7 @@ public class TaildirSource extends AbstractSource implements
   private boolean cachePatternMatching;
 
   private List<Long> existingInodes = new CopyOnWriteArrayList<Long>();
+  //ideleInodes 记录是inactive file的inode,flume会将这些file close
   private List<Long> idleInodes = new CopyOnWriteArrayList<Long>();
   private Long backoffSleepIncrement;
   private Long maxBackOffSleepInterval;
@@ -172,6 +182,11 @@ public class TaildirSource extends AbstractSource implements
     String fileGroups = context.getString(FILE_GROUPS);
     Preconditions.checkState(fileGroups != null, "Missing param: " + FILE_GROUPS);
 
+    /* 对filePaths 的格式还不是很确定,猜测:
+     * flume的配置文件中对filegroups的配置是可以配置多个是路径下的file的,例如上面给出的示例,
+     * filegroup的key为f1,f2, 起对应的路径分别自其他的两个配置项配置了,所以selectByKeys的得到的map中
+     * value应该是对应的key的所标识的文件的路径
+     */
     filePaths = selectByKeys(context.getSubProperties(FILE_GROUPS_PREFIX),
                              fileGroups.split("\\s+"));
     Preconditions.checkState(!filePaths.isEmpty(),
@@ -238,15 +253,18 @@ public class TaildirSource extends AbstractSource implements
     return sourceCounter;
   }
 
+  //source 的核心方法, 从file中 readEvent然后放入到channel中
   @Override
   public Status process() {
     Status status = Status.READY;
     try {
       existingInodes.clear();
       existingInodes.addAll(reader.updateTailFiles());
+      //遍历已经检测到的所有文件
       for (long inode : existingInodes) {
         TailFile tf = reader.getTailFiles().get(inode);
         if (tf.needTail()) {
+          //处理文件
           tailFileProcess(tf, true);
         }
       }
@@ -276,7 +294,9 @@ public class TaildirSource extends AbstractSource implements
   private void tailFileProcess(TailFile tf, boolean backoffWithoutNL)
       throws IOException, InterruptedException {
     while (true) {
+      //设置readEvent的文件
       reader.setCurrentFile(tf);
+      //尝试读取batchSize个event
       List<Event> events = reader.readEvents(batchSize, backoffWithoutNL);
       if (events.isEmpty()) {
         break;
@@ -284,9 +304,11 @@ public class TaildirSource extends AbstractSource implements
       sourceCounter.addToEventReceivedCount(events.size());
       sourceCounter.incrementAppendBatchReceivedCount();
       try {
+        //将读取event放入到channel中
         getChannelProcessor().processEventBatch(events);
         reader.commit();
       } catch (ChannelException ex) {
+        //对于像channel 放入event失败的情况,source会在间隔一段时候后一直重试
         logger.warn("The channel is full or unexpected failure. " +
             "The source will try again after " + retryInterval + " ms");
         TimeUnit.MILLISECONDS.sleep(retryInterval);
@@ -297,12 +319,14 @@ public class TaildirSource extends AbstractSource implements
       retryInterval = 1000;
       sourceCounter.addToEventAcceptedCount(events.size());
       sourceCounter.incrementAppendBatchAcceptedCount();
+      //表示event已经读取完了,可以结束对改文件的处理了
       if (events.size() < batchSize) {
         break;
       }
     }
   }
 
+  //close idle(inactive) file
   private void closeTailFiles() throws IOException, InterruptedException {
     for (long inode : idleInodes) {
       TailFile tf = reader.getTailFiles().get(inode);

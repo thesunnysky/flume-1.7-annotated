@@ -45,13 +45,25 @@ import java.util.Map.Entry;
 
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
+/**
+ * ReliableTaildirEventReader 帮TaildirSource做掉了对指定目录下所有文件的监控, 监控是否有文件有新的内容写入;
+ * 从给定文件中读取event;
+ */
 public class ReliableTaildirEventReader implements ReliableEventReader {
   private static final Logger logger = LoggerFactory.getLogger(ReliableTaildirEventReader.class);
 
+  //本地缓存的TaildirMatcher
   private final List<TaildirMatcher> taildirCache;
   private final Table<String, String, String> headerTable;
 
+  /* TailFile的引用
+   * ReliadbleTaildirEventReader 中有对TailFile 的readEvent方法,这些方法就是从currentFile所引用的TailFile中
+   * 读取event的
+   */
   private TailFile currentFile = null;
+  /* 本地TailFile的Map,key是file的inode,value是文件对应的TailFile类
+   * tailFiles标记的是每次处理时要处理的file
+   */
   private Map<Long, TailFile> tailFiles = Maps.newHashMap();
   private long updateTime;
   private boolean addByteOffset;
@@ -76,6 +88,11 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
           new Object[] { ReliableTaildirEventReader.class.getSimpleName(), filePaths });
     }
 
+    /* 讲配置文件中配置的filegroup配置项转换成TaildirMatcher并存入到taildirCache中;
+     * 然后后续的操作都会taildirCache来进行;
+     * 补充:后续对taildirCache的更新操作是在检测到filePath的父目录更新后才更新的,
+     * 以为只有父目录更新后才以为着目录下有文件的增加或者删除,单单对文件的内容的修改不会引起父文件夹的更新
+     */
     List<TaildirMatcher> taildirCache = Lists.newArrayList();
     for (Entry<String, String> e : filePaths.entrySet()) {
       taildirCache.add(new TaildirMatcher(e.getKey(), e.getValue(), cachePatternMatching));
@@ -99,6 +116,13 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
    * Load a position file which has the last read position of each file.
    * If the position file exists, update tailFiles mapping.
    */
+  /**
+   * flume position文件的示例:
+   * [
+   *    {"inode":245854,"pos":1856,"file":"/home/gpadmin/data/master/gpseg-1/pg_log/adb_29.csv"},
+   *    {"inode":245836,"pos":0,"file":"/home/gpadmin/data/master/gpseg-1/pg_log/adb_30.csv"}
+   * ]
+   */
   public void loadPositionFile(String filePath) {
     Long inode, pos;
     String path;
@@ -108,6 +132,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
       fr = new FileReader(filePath);
       jr = new JsonReader(fr);
       jr.beginArray();
+      //读取position file的json格式的内容
       while (jr.hasNext()) {
         inode = null;
         pos = null;
@@ -225,6 +250,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     if (!committed && currentFile != null) {
       long pos = currentFile.getLineReadPos();
       currentFile.setPos(pos);
+      //更新TailFile对flme readEvent(commit)(commit)的时间
       currentFile.setLastUpdated(updateTime);
       committed = true;
     }
@@ -233,6 +259,9 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
   /**
    * Update tailFiles mapping if a new file is created or appends are detected
    * to the existing file.
+   */
+  /* 检查taildirCache中符合要求的source文件,将这些文件的索引放到tailFiles(map)中,
+   * 同时检查文件是否更新或者修改过,如果是,设置标志位,下次在处理的时候会将从更新的文件中读取event
    */
   public List<Long> updateTailFiles(boolean skipToEnd) throws IOException {
     updateTime = System.currentTimeMillis();
@@ -248,19 +277,26 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
           long startPos = skipToEnd ? f.length() : 0;
           tf = openFile(f, headers, inode, startPos);
         } else {
+          /* 判断文件是是否已经被修改过
+           * tf.getLastUpdated()记录的是flume最后一次对该file处理的时间
+           * 这里的处理应该是从文件中read event
+           */
           boolean updated = tf.getLastUpdated() < f.lastModified();
           if (updated) {
             if (tf.getRaf() == null) {
               tf = openFile(f, headers, inode, tf.getPos());
             }
+            //position文件红记录的位置比文件本身的大小都要大,说明有地方出错了,flume的处理是从头开始读取文件
             if (f.length() < tf.getPos()) {
               logger.info("Pos " + tf.getPos() + " is larger than file size! "
                   + "Restarting from pos 0, file: " + tf.getPath() + ", inode: " + inode);
               tf.updatePos(tf.getPath(), inode, 0);
             }
           }
+          //设置文件已经更新的标志位
           tf.setNeedTail(updated);
         }
+        //将文件以<inode,TailFile>的格式存储到Map中
         tailFiles.put(inode, tf);
         updatedInodes.add(inode);
       }
@@ -273,6 +309,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
   }
 
 
+  //得到文件的inode
   private long getInode(File file) throws IOException {
     long inode = (long) Files.getAttribute(file.toPath(), "unix:ino");
     return inode;
@@ -289,6 +326,9 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
 
   /**
    * Special builder class for ReliableTaildirEventReader
+   */
+  /**
+   * ReliableTaildirEventReader并没有public的构造器,而是采用的builder的形式
    */
   public static class Builder {
     private Map<String, String> filePaths;

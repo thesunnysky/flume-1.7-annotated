@@ -126,7 +126,9 @@ public class TaildirMatcher {
    */
   TaildirMatcher(String fileGroup, String filePattern, boolean cachePatternMatching) {
     // store whatever came from configuration
+    //filegroup配置的key,也就是配置文件中filegroup 的名字
     this.fileGroup = fileGroup;
+    // filegroup配置路径(完整的路径)
     this.filePattern = filePattern;
     this.cachePatternMatching = cachePatternMatching;
 
