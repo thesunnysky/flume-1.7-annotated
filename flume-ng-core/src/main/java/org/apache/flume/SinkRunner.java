@@ -40,6 +40,12 @@ import org.slf4j.LoggerFactory;
  * @see org.apache.flume.Sink
  * @see org.apache.flume.SourceRunner
  */
+
+/**
+ * sinkRunner中启动了Sink的工作线程，worker thread将会循环调用sinkProcessor的proess()方法
+ * 同时我们也应该清楚，SinkProcessor的Process方法核心也是调用Sink的process()方法；
+ * 同时SinkRunner中也实现了在调用process方法失败时的backoff机制
+ */
 public class SinkRunner implements LifecycleAware {
 
   private static final Logger logger = LoggerFactory
@@ -48,10 +54,14 @@ public class SinkRunner implements LifecycleAware {
   private static final long maxBackoffSleep = 5000;
 
   private CounterGroup counterGroup;
+  //run 方法
   private PollingRunner runner;
+  //对工作线程的引用
   private Thread runnerThread;
+  //SinkRunner生命周期管理
   private LifecycleState lifecycleState;
 
+  //SinkProcessor的实例引用
   private SinkProcessor policy;
 
   public SinkRunner() {
@@ -83,7 +93,7 @@ public class SinkRunner implements LifecycleAware {
     runner.policy = policy;
     runner.counterGroup = counterGroup;
     runner.shouldStop = new AtomicBoolean();
-
+    //启动工作线程
     runnerThread = new Thread(runner);
     runnerThread.setName("SinkRunner-PollingRunner-" +
         policy.getClass().getSimpleName());
@@ -95,6 +105,7 @@ public class SinkRunner implements LifecycleAware {
   @Override
   public void stop() {
 
+    //关闭工作线程
     if (runnerThread != null) {
       runner.shouldStop.set(true);
       runnerThread.interrupt();
@@ -136,6 +147,9 @@ public class SinkRunner implements LifecycleAware {
     private AtomicBoolean shouldStop;
     private CounterGroup counterGroup;
 
+    /* 线程的run方法，就是不停的调用SinkProcessor的process()方法
+     * 并在失败的时候启动backoff机制
+     */
     @Override
     public void run() {
       logger.debug("Polling sink runner starting");

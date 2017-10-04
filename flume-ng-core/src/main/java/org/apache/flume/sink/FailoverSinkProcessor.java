@@ -66,9 +66,13 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
   private static final int DEFAULT_MAX_PENALTY = 30000;
 
   private class FailedSink implements Comparable<FailedSink> {
+    //failsink重试的时间点，超过这个时间点的认为已经过了cooldown时间，可以重新尝试用这个sink去process数据
     private Long refresh;
+    //sink的优先级
     private Integer priority;
+    //对sink的引用
     private Sink sink;
+    //标识连续失败的次数
     private Integer sequentialFailures;
 
     public FailedSink(Integer priority, Sink sink, int seqFailures) {
@@ -95,6 +99,7 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
       return priority;
     }
 
+    //增加失败次数的计数
     public void incFails() {
       sequentialFailures++;
       adjustRefresh();
@@ -102,6 +107,7 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
                    new Object[] { sink.getName(), refresh, System.currentTimeMillis() });
     }
 
+    //更新cooldown时间，在这个时间之前都不进行重试
     private void adjustRefresh() {
       refresh = System.currentTimeMillis()
           + Math.min(maxPenalty, (1 << sequentialFailures) * FAILURE_PENALTY);
@@ -113,7 +119,9 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
   private static final String PRIORITY_PREFIX = "priority.";
   private static final String MAX_PENALTY_PREFIX = "maxpenalty";
   private Map<String, Sink> sinks;
+  //记录当前存活sinks中优先级最高的sink
   private Sink activeSink;
+  //存活的sinks
   private SortedMap<Integer, Sink> liveSinks;
   private Queue<FailedSink> failedSinks;
   private int maxPenalty;
@@ -135,12 +143,17 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
         maxPenalty = DEFAULT_MAX_PENALTY;
       }
     }
+    //从配置文件中读取sink的priority
     for (Entry<String, Sink> entry : sinks.entrySet()) {
       String priStr = PRIORITY_PREFIX + entry.getKey();
       Integer priority;
       try {
         priority =  Integer.parseInt(context.getString(priStr));
       } catch (Exception e) {
+        /* 1.从配置文件中解析sink的priority失败
+         * 2.或者文件中没有配置sink的priority
+         * 这两种情况将按照sink在配置文件中的排序来排列优先级，排在前面的优先级越高
+         */
         priority = --nextPrio;
       }
       if (!liveSinks.containsKey(priority)) {
@@ -151,6 +164,7 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
             liveSinks.get(priority));
       }
     }
+    //获取liveSink中优先级最高的sink
     activeSink = liveSinks.get(liveSinks.lastKey());
   }
 
@@ -158,13 +172,17 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
   public Status process() throws EventDeliveryException {
     // Retry any failed sinks that have gone through their "cooldown" period
     Long now = System.currentTimeMillis();
+    //peek()只是从队列中获取，但是不remove
     while (!failedSinks.isEmpty() && failedSinks.peek().getRefresh() < now) {
+      //retrieves and remove the head of the queue
       FailedSink cur = failedSinks.poll();
       Status s;
       try {
+        //尝试用failoversink来process 数据
         s = cur.getSink().process();
         if (s  == Status.READY) {
           liveSinks.put(cur.getPriority(), cur.getSink());
+          //得到当前存活的优先级最高的sink
           activeSink = liveSinks.get(liveSinks.lastKey());
           logger.debug("Sink {} was recovered from the fail list",
                   cur.getSink().getName());
@@ -179,6 +197,7 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
       }
     }
 
+    //调用用当前优先级最高的存活sink
     Status ret = null;
     while (activeSink != null) {
       try {
@@ -195,6 +214,7 @@ public class FailoverSinkProcessor extends AbstractSinkProcessor {
         "nothing left to failover to");
   }
 
+  //将fail的sink放入到failedSinks中
   private Sink moveActiveToDeadAndGetNext() {
     Integer key = liveSinks.lastKey();
     failedSinks.add(new FailedSink(key, activeSink, 1));

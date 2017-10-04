@@ -92,6 +92,7 @@ public class LoadBalancingSinkProcessor extends AbstractSinkProcessor {
   private static final Logger LOGGER = LoggerFactory
       .getLogger(LoadBalancingSinkProcessor.class);
 
+  //当前使用的selector的引用
   private SinkSelector selector;
 
   @Override

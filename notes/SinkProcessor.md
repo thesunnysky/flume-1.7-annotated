@@ -474,8 +474,185 @@ public class DefaultSinkProcessor implements SinkProcessor, ConfigurableComponen
 
 摘自前面的话:
 
-> FailoverSink Processor会通过配置维护了一个优先级列表。保证每一个有效的事件都会被处理。
+> FailoverSink Processor会通过配置维护了一个优先级列表，保证只要所配置的各个Sink只要有一个是可用的，events就可以被正确的处理；
 >
-> 故障转移的工作原理是将连续失败sink分配到一个池中，在那里被分配一个冷冻期，在这个冷冻期里，这个sink不会做任何事。一旦sink成功发送一个event，sink将被还原到live 池中。
+> ​    容错机制将失败的sink放入一个冷却池中，并给他设置一个冷却时间，如果重试中不断失败，冷却时间将不断增加。一旦sink成功的发送event，sink将被重新保存到一个可用sink池中。在这个可用sink池中，每一个sink都有一个关联优先级值，值越大优先级越高。当一个sink发送event失败时，剩下的sink中优先级最高的sink将试着发送event。例如：在选择发送event的sink时，优先级100的sink将优先于优先级80的sink。如果没有设置sink的优先级，那么优先级将按照设置的顺序从左至右，由高到低来决定。
 >
->  在这配置中，要设置sinkgroups processor为failover，需要为所有的sink分配优先级，所有的优先级数字必须是唯一的，这个得格外注意。此外，failover time的上限可以通过maxpenalty 属性来进行设置。
+> ​    设置sink组的processor为failover，并且为每个独立的sink配置优先级，优先级不能重复。通过设置参数maxpenalty，来设置冷却池中的sink的最大冷却时间。
+
+```
+public class FailoverSinkProcessor extends AbstractSinkProcessor {
+  private static final int FAILURE_PENALTY = 1000;
+  private static final int DEFAULT_MAX_PENALTY = 30000;
+
+  private class FailedSink implements Comparable<FailedSink> {
+    //failsink重试的时间点，超过这个时间点的认为已经过了cooldown时间，可以重新尝试用这个sink去process数据
+    private Long refresh;
+    //sink的优先级
+    private Integer priority;
+    //对sink的引用
+    private Sink sink;
+    //标识连续失败的次数
+    private Integer sequentialFailures;
+  }
+
+  private Map<String, Sink> sinks;
+  //记录当前存活sinks中优先级最高的sink
+  private Sink activeSink;
+  //存活的sinks
+  private SortedMap<Integer, Sink> liveSinks;
+  //失效的sinks
+  private Queue<FailedSink> failedSinks;
+  private int maxPenalty;
+
+  @Override
+  public void configure(Context context) {
+    liveSinks = new TreeMap<Integer, Sink>();
+    failedSinks = new PriorityQueue<FailedSink>();
+    Integer nextPrio = 0;
+    String maxPenaltyStr = context.getString(MAX_PENALTY_PREFIX);
+    if (maxPenaltyStr == null) {
+      maxPenalty = DEFAULT_MAX_PENALTY;
+    } else {
+      try {
+        maxPenalty = Integer.parseInt(maxPenaltyStr);
+      } catch (NumberFormatException e) {
+        logger.warn("{} is not a valid value for {}",
+                    new Object[] { maxPenaltyStr, MAX_PENALTY_PREFIX });
+        maxPenalty = DEFAULT_MAX_PENALTY;
+      }
+    }
+    //从配置文件中读取sink的priority
+    for (Entry<String, Sink> entry : sinks.entrySet()) {
+      String priStr = PRIORITY_PREFIX + entry.getKey();
+      Integer priority;
+      try {
+        priority =  Integer.parseInt(context.getString(priStr));
+      } catch (Exception e) {
+        /* 1.从配置文件中解析sink的priority失败
+         * 2.或者文件中没有配置sink的priority
+         * 这两种情况将按照sink在配置文件中的排序来排列优先级，排在前面的优先级越高
+         */
+        priority = --nextPrio;
+      }
+      if (!liveSinks.containsKey(priority)) {
+        liveSinks.put(priority, sinks.get(entry.getKey()));
+      } else {
+        logger.warn("Sink {} not added to FailverSinkProcessor as priority" +
+            "duplicates that of sink {}", entry.getKey(),
+            liveSinks.get(priority));
+      }
+    }
+    //获取liveSink中优先级最高的sink
+    activeSink = liveSinks.get(liveSinks.lastKey());
+  }
+  
+  @Override
+  public Status process() throws EventDeliveryException {
+    // Retry any failed sinks that have gone through their "cooldown" period
+    Long now = System.currentTimeMillis();
+    //peek()只是从队列中获取，但是不remove
+    while (!failedSinks.isEmpty() && failedSinks.peek().getRefresh() < now) {
+      //retrieves and remove the head of the queue
+      FailedSink cur = failedSinks.poll();
+      Status s;
+      try {
+        //尝试用failoversink来process 数据
+        s = cur.getSink().process();
+        if (s  == Status.READY) {
+          liveSinks.put(cur.getPriority(), cur.getSink());
+          //得到当前存活的优先级最高的sink
+          activeSink = liveSinks.get(liveSinks.lastKey());
+          logger.debug("Sink {} was recovered from the fail list",
+                  cur.getSink().getName());
+        } else {
+          // if it's a backoff it needn't be penalized.
+          failedSinks.add(cur);
+        }
+        return s;
+      } catch (Exception e) {
+        cur.incFails();
+        failedSinks.add(cur);
+      }
+    }
+
+    //调用用当前优先级最高的存活sink
+    Status ret = null;
+    while (activeSink != null) {
+      try {
+        ret = activeSink.process();
+        return ret;
+      } catch (Exception e) {
+        logger.warn("Sink {} failed and has been sent to failover list",
+                activeSink.getName(), e);
+        activeSink = moveActiveToDeadAndGetNext();
+      }
+    }
+
+    throw new EventDeliveryException("All sinks failed to process, " +
+        "nothing left to failover to");
+  }
+
+  //将fail的sink放入到failedSinks中
+  private Sink moveActiveToDeadAndGetNext() {
+    Integer key = liveSinks.lastKey();
+    failedSinks.add(new FailedSink(key, activeSink, 1));
+    liveSinks.remove(key);
+    if (liveSinks.isEmpty()) return null;
+    if (liveSinks.lastKey() != null) {
+      return liveSinks.get(liveSinks.lastKey());
+    } else {
+      return null;
+    }
+  }
+}
+```
+
+###LoadBalancingSinkProcessor
+
+   Load balancing Sink processor（负载均衡处理器）在多个sink间实现负载均衡。数据分发到多个活动的sink，处理器用一个索引化的列表来存储这些sink的信息。处理器实现两种数据分发机制，轮循选择机制和随机选择机制。默认的分发机制是轮循选择机制，可以通过配置修改。同时我们可以通过继承AbstractSinkSelector来实现自定义数据分发选择机制。
+
+​    选择器按照我们配置的选择机制执行选择sink。当sink失败时，处理器将根据我们配置的选择机制，选择下一个可用的sink。这种方式中没有黑名单，而是主动常识每一个可用的sink。如果所有的sink都失败了，选择器将把这些失败传递给sink的执行者。
+
+​    如果设置backoff为true，处理器将会把失败的sink放进黑名单中，并且为失败的sink设置一个在黑名单驻留的时间，在这段时间内，sink将不会被选择接收数据。当超过黑名单驻留时间，如果该sink仍然没有应答或者应答迟缓，黑名单驻留时间将以指数的方式增加，以避免长时间等待sink应答而阻塞。如果设置backoff为false，在轮循的方式下，失败的数据将被顺序的传递给下一个sink，因此数据分发就变成非均衡的了。
+
+   如果flume轮训完了所有的sink都失败了，那么flume会抛出一个EventDeliveryException异常
+
+1. flume 实现了轮训selector和随机selector来选择下一次使用哪个sink；
+
+```
+private static class RoundRobinSinkSelector extends AbstractSinkSelector；
+private static class RandomOrderSinkSelector extends AbstractSinkSelector；
+```
+
+2. LoadBalancingSinkProcessor process()
+
+```java
+  //当前使用的selector的引用
+  private SinkSelector selector;
+
+@Override
+  public Status process() throws EventDeliveryException {
+    Status status = null;
+
+    Iterator<Sink> sinkIterator = selector.createSinkIterator();
+    while (sinkIterator.hasNext()) {
+      Sink sink = sinkIterator.next();
+      try {
+        status = sink.process();
+        break;
+      } catch (Exception ex) {
+        selector.informSinkFailed(sink);
+        LOGGER.warn("Sink failed to consume event. "
+            + "Attempting next sink if available.", ex);
+      }
+    }
+
+    if (status == null) {
+      throw new EventDeliveryException("All configured sinks have failed");
+    }
+
+    return status;
+  }
+```
+
