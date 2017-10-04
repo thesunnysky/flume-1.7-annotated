@@ -752,7 +752,6 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
                                             annotateFileName, fileNameHeader);
     }
   }
-
 }
 ```
 
