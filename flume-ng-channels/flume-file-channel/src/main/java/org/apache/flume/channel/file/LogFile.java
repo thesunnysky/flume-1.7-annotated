@@ -59,11 +59,13 @@ public abstract class LogFile {
    */
   private static final ByteBuffer FILL = DirectMemoryUtils.allocate(1024 * 1024);
 
+  //Operation Code
   public static final byte OP_RECORD = Byte.MAX_VALUE;
   public static final byte OP_NOOP = (Byte.MAX_VALUE + Byte.MIN_VALUE) / 2;
   public static final byte OP_EOF = Byte.MIN_VALUE;
 
   static {
+    //初始化FILL
     for (int i = 0; i < FILL.capacity(); i++) {
       FILL.put(OP_EOF);
     }
@@ -172,21 +174,31 @@ public abstract class LogFile {
     private final File file;
     private final long maxFileSize;
     private final RandomAccessFile writeFileHandle;
+    //文件的FileChannel,这里对文件的操作是通过NIO的FileChannel实现的
     private final FileChannel writeFileChannel;
     private final CipherProvider.Encryptor encryptor;
+    //用来表示当前日志文件中还有多少可用的空间
     private final CachedFSUsableSpace usableSpace;
+    //标志该Writer/File是否是好Open的
     private volatile boolean open;
+    //记录最后一次commit的channel的位置
     private long lastCommitPosition;
+    //记录最后一次文件同步的位置
     private long lastSyncPosition;
 
     private final boolean fsyncPerTransaction;
     private final int fsyncInterval;
+    //同步线程
     private final ScheduledExecutorService syncExecutor;
+    //类似于dirty bit,脏位,用来表示该部分数据是否被修改过
     private volatile boolean dirty = false;
 
     // To ensure we can count the number of fsyncs.
     private long syncCount;
 
+    /**
+     * 会起一个定时调度的同步线程
+     */
     Writer(File file, int logFileID, long maxFileSize,
            CipherProvider.Encryptor encryptor, long usableSpaceRefreshInterval,
            boolean fsyncPerTransaction, int fsyncInterval) throws IOException {
@@ -195,10 +207,12 @@ public abstract class LogFile {
       this.maxFileSize = Math.min(maxFileSize,
           FileChannelConfiguration.DEFAULT_MAX_FILE_SIZE);
       this.encryptor = encryptor;
+      //some key point
       writeFileHandle = new RandomAccessFile(file, "rw");
       writeFileChannel = writeFileHandle.getChannel();
       this.fsyncPerTransaction = fsyncPerTransaction;
       this.fsyncInterval = fsyncInterval;
+      //创建定时调度的同步线程
       if (!fsyncPerTransaction) {
         LOG.info("Sync interval = " + fsyncInterval);
         syncExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -216,6 +230,7 @@ public abstract class LogFile {
       } else {
         syncExecutor = null;
       }
+      //测试
       usableSpace = new CachedFSUsableSpace(file, usableSpaceRefreshInterval);
       LOG.info("Opened " + file);
       open = true;
@@ -262,6 +277,7 @@ public abstract class LogFile {
       return syncCount;
     }
 
+    //返回的channel的当前位置
     synchronized long position() throws IOException {
       return getFileChannel().position();
     }
@@ -269,6 +285,11 @@ public abstract class LogFile {
     // encrypt and write methods may not be thread safe in the following
     // methods, so all methods need to be synchronized.
 
+    /*? put(), take(), rollback(),commit()
+     */
+    /* 每次网FileChannelPutEvent的时候都会返回一个FlumeEventPointer来指向put的event
+     *
+     */
     synchronized FlumeEventPointer put(ByteBuffer buffer) throws IOException {
       if (encryptor != null) {
         buffer = ByteBuffer.wrap(encryptor.encrypt(buffer.array()));
@@ -300,6 +321,13 @@ public abstract class LogFile {
       lastCommitPosition = position();
     }
 
+    /**
+     * 将buffer中的数据写入到FileChannel中
+     *
+     * @param buffer
+     * @return 返回指向写入文件写入位置的Pair,可以理解为文件指针
+     * @throws IOException
+     */
     private Pair<Integer, Integer> write(ByteBuffer buffer)
         throws IOException {
       if (!isOpen()) {
@@ -314,13 +342,25 @@ public abstract class LogFile {
       int offset = (int) length;
       Preconditions.checkState(offset >= 0, String.valueOf(offset));
       // OP_RECORD + size + buffer
+      /* 由于写入buffer的数据格式是: OP_RECORD、buffer.limit()、buffer,所以计算出需要占用的空间,
+       * 在随后的preallocate函数中预申请相应的空间
+       */
       int recordLength = 1 + (int) Serialization.SIZE_OF_INT + buffer.limit();
+      //测试使用,先不管
       usableSpace.decrement(recordLength);
       preallocate(recordLength);
+      //申请缓冲区
       ByteBuffer toWrite = ByteBuffer.allocate(recordLength);
+      //先在缓冲区中写入:OP_RECORD
       toWrite.put(OP_RECORD);
+      /* 该方法会先写入Buffer的limit,然后在写入buffer的内容,所以最终buffer的内容
+       * OP_RECORD、buffer.limit()、buffer。
+       * buffer的内容是（RecordType(这是1)、 TransactionID、LogWriteOrderID、fileID、offset）
+       */
       writeDelimitedBuffer(toWrite, buffer);
+      //将当前buffer的position置为0
       toWrite.position(0);
+      //将buffer中的数据写入channel中
       int wrote = getFileChannel().write(toWrite);
       Preconditions.checkState(wrote == toWrite.limit());
       return Pair.of(getLogFileID(), offset);
@@ -338,6 +378,7 @@ public abstract class LogFile {
      * @throws IOException
      * @throws LogFileRetryableIOException - if this log file is closed.
      */
+    //同步磁盘上的日志文件,相当昂贵的一个操作
     synchronized void sync() throws IOException {
       if (!fsyncPerTransaction && !dirty) {
         if (LOG.isDebugEnabled()) {
@@ -351,7 +392,9 @@ public abstract class LogFile {
         throw new LogFileRetryableIOException("File closed " + file);
       }
       if (lastSyncPosition < lastCommitPosition) {
+        //强制将通道中剩余的数据写入磁盘
         getFileChannel().force(false);
+        //更新最新channel同步到位置
         lastSyncPosition = position();
         syncCount++;
         dirty = false;
@@ -370,6 +413,9 @@ public abstract class LogFile {
       return writeFileChannel;
     }
 
+    /**
+     * 关闭LogFile,关闭相应的线程,做一些清理工作
+     */
     synchronized void close() {
       if (open) {
         open = false;
@@ -383,6 +429,7 @@ public abstract class LogFile {
         if (writeFileChannel.isOpen()) {
           LOG.info("Closing " + file);
           try {
+            //在关闭的时候再做一次同步?
             writeFileChannel.force(true);
           } catch (IOException e) {
             LOG.warn("Unable to flush to disk " + file, e);
@@ -396,11 +443,16 @@ public abstract class LogFile {
       }
     }
 
+    /* 在当前channel的position位置后面预申请size大小的空间
+     * 预申请操作需要保证要写入channel的数据位置已经超过了当前channel对应的文件的大小
+     */
     protected void preallocate(int size) throws IOException {
       long position = position();
+      //判断要写入channel的数据位置已经超过了当前channel对应的文件的大小
       if (position + size > getFileChannel().size()) {
         LOG.debug("Preallocating at position " + position);
         synchronized (FILL) {
+          //重置FILL的position,相当于写入一个完整的FILL到channel中
           FILL.position(0);
           getFileChannel().write(FILL, position);
         }
@@ -722,7 +774,9 @@ public abstract class LogFile {
 
   protected static void writeDelimitedBuffer(ByteBuffer output, ByteBuffer buffer)
       throws IOException {
+    //现将当前要写入buffer的数据的长度写入进入buffer
     output.putInt(buffer.limit());
+    //将数据写入到buffer中
     output.put(buffer);
   }
 

@@ -24,8 +24,19 @@ package org.apache.flume.channel.file;
  * as a long. As such there are methods to convert from this
  * object to a long and from a long to this object.
  */
+
+/**
+ * Flume将event存放到磁盘的同时会通过一个FlumeEventPointer来指向这个Evnent;
+ * FlumeEventPointer是存储在内存中的数据,是一个long类型的字段
+ * FlumeEventPointer由两部分数据组成:
+ * fileID表示的文件的Id,
+ * offset表示指针指向的位置在文件中的偏移量,
+ * 两个数据可以唯一的确定某个文件的一个位置,得到了指针的作用
+ */
 class FlumeEventPointer {
+  //fileID 表征的是File的Id, 即该指针指向的File
   private final int fileID;
+  //表示的是在文件中的偏移位置
   private final int offset;
 
   FlumeEventPointer(int fileID, int offset) {

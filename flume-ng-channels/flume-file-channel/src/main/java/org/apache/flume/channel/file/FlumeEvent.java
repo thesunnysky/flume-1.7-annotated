@@ -35,6 +35,7 @@ import org.apache.flume.Event;
 /**
  * Persistable wrapper for Event
  */
+//对Event的包装
 class FlumeEvent implements Event, Writable {
 
   private static final byte EVENT_MAP_TEXT_WRITABLE_ID =
