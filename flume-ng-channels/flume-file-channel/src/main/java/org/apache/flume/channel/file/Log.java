@@ -107,10 +107,12 @@ public class Log {
       QUEUE_SET);
   /**
    * Shared lock
+   * 共享锁
    */
   private final ReadLock checkpointReadLock = checkpointLock.readLock();
   /**
    * Exclusive lock
+   * 独占锁
    */
   private final WriteLock checkpointWriterLock = checkpointLock.writeLock();
   private final String channelNameDescriptor;
@@ -315,6 +317,7 @@ public class Log {
           "LogDir " + logDir + " could not be created");
     }
     locks = Maps.newHashMap();
+    //将checkpointDir,backupCheckpointDir, logDirs全部锁住
     try {
       lock(checkpointDir);
       if (useDualCheckpoints) {
@@ -1015,11 +1018,15 @@ public class Log {
    */
   private Boolean writeCheckpoint(Boolean force) throws Exception {
     boolean checkpointCompleted = false;
+    /* 获取剩余的可用空间
+     * 该方法返回该分区上的可用的字节数,只是一个估算值,并不能保证严格的准确
+     */
     long usableSpace = checkpointDir.getUsableSpace();
     if (usableSpace <= minimumRequiredSpace) {
       throw new IOException("Usable space exhausted, only " + usableSpace +
           " bytes remaining, required " + minimumRequiredSpace + " bytes");
     }
+    //获取checkpoint的writelock,独占锁
     lockExclusive();
     SortedSet<Integer> logFileRefCountsAll = null;
     SortedSet<Integer> logFileRefCountsActive = null;

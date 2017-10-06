@@ -550,6 +550,9 @@ public abstract class LogFile {
               "Operation code is invalid. File " +
                   "is corrupt. Please run File Channel Integrity tool.");
         }
+        /* 从data file中读取data
+         * TransactionEventRecord: Base class for records in data file: Put, Take, Rollback, Commit
+         */
         TransactionEventRecord record = doGet(fileHandle);
         if (!(record instanceof Put)) {
           Preconditions.checkState(false, "Record is " +
@@ -595,12 +598,14 @@ public abstract class LogFile {
       return new RandomAccessFile(file, "r");
     }
 
+    //将文件句柄放入队列中
     private void checkIn(RandomAccessFile fileHandle) {
       if (!readFileHandles.offer(fileHandle)) {
         close(fileHandle, file);
       }
     }
 
+    //从队列中去取出文件句柄
     private RandomAccessFile checkOut()
         throws IOException, InterruptedException {
       RandomAccessFile fileHandle = readFileHandles.poll();
@@ -616,6 +621,7 @@ public abstract class LogFile {
       return readFileHandles.take();
     }
 
+    //关闭文件句柄
     private static void close(RandomAccessFile fileHandle, File file) {
       if (fileHandle != null) {
         try {
@@ -627,6 +633,7 @@ public abstract class LogFile {
     }
   }
 
+  //顺序读取
   public abstract static class SequentialReader {
 
     private final RandomAccessFile fileHandle;
@@ -729,6 +736,7 @@ public abstract class LogFile {
         Preconditions.checkState(offset >= 0);
         while (offset < fileHandle.length()) {
           byte operation = fileHandle.readByte();
+          //期待的读到的值,表示是一条新的记录的开始
           if (operation == OP_RECORD) {
             break;
           } else if (operation == OP_EOF) {
@@ -749,6 +757,7 @@ public abstract class LogFile {
         if (offset >= fileHandle.length()) {
           return null;
         }
+        //?
         return doNext(offset);
       } catch (EOFException e) {
         return null;
@@ -772,6 +781,7 @@ public abstract class LogFile {
     }
   }
 
+  //存入文件的数据是按照一个格式排列的
   protected static void writeDelimitedBuffer(ByteBuffer output, ByteBuffer buffer)
       throws IOException {
     //现将当前要写入buffer的数据的长度写入进入buffer
@@ -780,6 +790,8 @@ public abstract class LogFile {
     output.put(buffer);
   }
 
+  /* 按照之前存入文件的格式再将数据从文件中读出来
+   */
   protected static byte[] readDelimitedBuffer(RandomAccessFile fileHandle)
       throws IOException, CorruptEventException {
     int length = fileHandle.readInt();

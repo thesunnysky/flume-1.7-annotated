@@ -46,6 +46,11 @@ import java.util.concurrent.LinkedBlockingDeque;
  * Represents a single data file on disk. Has methods to write,
  * read sequentially (replay), and read randomly (channel takes).
  */
+/**
+ * LogFileV3 代表的是磁盘上的一个单一的数据文件,这种类型的文件存放的是put、take、commit、rollback的操作记录及数据;
+ * 每个data目录里data文件保持一般不超过2个，会删除文件编号比当前正在使用的文件编号小的数据文件;
+ * 该类提供了对文件内从的顺序读取和随机读取的方法;
+ */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
 public class LogFileV3 extends LogFile {
@@ -78,6 +83,9 @@ public class LogFileV3 extends LogFile {
       return Serialization.VERSION_3;
     }
 
+    /**
+     * 设置CheckPoint
+     */
     @Override
     void markCheckpoint(long currentPosition, long logWriteOrderID)
         throws IOException {
@@ -94,10 +102,14 @@ public class LogFileV3 extends LogFile {
       metaDataBuilder.setBackupCheckpointWriteOrderID(logFileMetaData
           .getCheckpointWriteOrderID());
       logFileMetaData = metaDataBuilder.build();
+      //将logFileMetaData写入到文件中
       writeDelimitedTo(logFileMetaData, metaDataFile);
     }
   }
 
+  /**
+   * 读取logFile的MetaData
+   */
   static class MetaDataReader {
     private final File logFile;
     private final File metaDataFile;
@@ -232,6 +244,8 @@ public class LogFileV3 extends LogFile {
       super(file, encryptionKeyProvider, fsyncPerTransaction);
     }
 
+    /* 从metaFile中的读取一些元数据
+     */
     private void initialize() throws IOException {
       File metaDataFile = Serialization.getMetaDataFile(getFile());
       FileInputStream inputStream = new FileInputStream(metaDataFile);
@@ -300,6 +314,7 @@ public class LogFileV3 extends LogFile {
           decryptor = getDecryptor();
           buffer = decryptor.decrypt(buffer);
         }
+        //将buffer的内容转换成TransactionEventRecord
         TransactionEventRecord event = TransactionEventRecord.fromByteArray(buffer);
         success = true;
         return event;

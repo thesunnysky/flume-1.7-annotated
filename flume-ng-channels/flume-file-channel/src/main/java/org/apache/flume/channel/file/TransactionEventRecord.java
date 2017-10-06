@@ -193,6 +193,7 @@ public abstract class TransactionEventRecord implements Writable {
   }
 
 
+  //将byte[]的数据转换成TransactionEventRecord
   static TransactionEventRecord fromByteArray(byte[] buffer)
       throws IOException, CorruptEventException {
     ByteArrayInputStream in = new ByteArrayInputStream(buffer);

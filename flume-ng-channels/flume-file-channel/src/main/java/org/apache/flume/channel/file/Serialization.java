@@ -38,6 +38,12 @@ import java.io.RandomAccessFile;
 import java.util.Collections;
 import java.util.Set;
 
+/**
+ * 提供了对文件的创建,删除,复制,压缩,解压缩的方法
+ *
+ * 提供了对log-ID.meta 文件的操作函数;
+ * data/log-ID.meta文件，主要记录log-ID下一个写入位置以及logWriteOrderID等信息,可以理解成是一个辅助文件
+ */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
 public class Serialization {

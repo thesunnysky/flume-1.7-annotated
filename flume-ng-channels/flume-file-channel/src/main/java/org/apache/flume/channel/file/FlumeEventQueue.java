@@ -51,6 +51,13 @@ import java.util.TreeSet;
  * contains the timestamp of last sync, the queue size and
  * the head position.
  */
+
+/**
+ * FileChannel中用来存储events的queue, queue中仅仅存储了FlumeEventPointer, 内部体现为一个8字节长;
+ * 同时,FlumeEventQueue本身存储在内存映射文件中,有一个固定的文件头和一个circular queue semantics,
+ * header中包含了队列最后一次的同步时间,队列的size的队列头的位置;
+ * ps:理解为队列本身使用的是circular queue semantics,所以需要有额外的地方来表明circle queue的头的位置;
+ */
 final class FlumeEventQueue {
   private static final Logger LOG = LoggerFactory
       .getLogger(FlumeEventQueue.class);
