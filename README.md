@@ -17,6 +17,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+# 写在前面
+
+这份代码是Apache Flume-NG v1.7的代码,自己想要读一下Flume的代码就fork了一份,同时在读的过程中就直接在代码里添加注释,感觉直接在代码里加注释,想到什么就写下什么,是一种很Nice的做法,也有利于对自己对代码的理解;
+
+不得不说的是这仅仅是自己在阅读的过程中自己对代码的理解,里面的严谨和缜密肯定有很多做的不到位,对代码的理解也未必全部都是一丝不差的,如果发现有任何的纰漏的地方,欢迎指出,谢谢.
+
+
+
 # Welcome to Apache Flume!
 
 Apache Flume is a distributed, reliable, and available service for efficiently
