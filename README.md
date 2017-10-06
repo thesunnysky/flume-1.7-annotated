@@ -23,6 +23,8 @@ under the License.
 
 不得不说的是这仅仅是自己在阅读的过程中自己对代码的理解,里面的严谨和缜密肯定有很多做的不到位,对代码的理解也未必全部都是一丝不差的,如果发现有任何的纰漏的地方,欢迎指出,谢谢.
 
+本人邮箱:jianyungsun@gmail.com
+
 
 
 # Welcome to Apache Flume!
