@@ -56,11 +56,14 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
   protected static final String COMPRESSED_FILE_EXTENSION = ".snappy";
 
   protected LongBuffer elementsBuffer;
+  //每次对queue的读写操作都记录在overwriteMap中
   protected final Map<Integer, Long> overwriteMap = new HashMap<Integer, Long>();
   protected final Map<Integer, AtomicInteger> logFileIDReferenceCounts = Maps.newHashMap();
+  //对应内存映射文件的buffer
   protected final MappedByteBuffer mappedBuffer;
   protected final RandomAccessFile checkpointFileHandle;
   protected final File checkpointFile;
+  //checkpoint backup文件的信号量,设为了1,表示每次只允许被一个线程访问
   private final Semaphore backupCompletedSema = new Semaphore(1);
   protected final boolean shouldBackup;
   protected final boolean compressBackup;
@@ -84,6 +87,7 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
     this.backupDir = checkpointBackupDir;
     checkpointFileHandle = new RandomAccessFile(checkpointFile, "rw");
     long totalBytes = (capacity + HEADER_SIZE) * Serialization.SIZE_OF_LONG;
+    //在checkpointFile中预申请空间
     if (checkpointFileHandle.length() == 0) {
       allocate(checkpointFile, totalBytes);
       checkpointFileHandle.seek(INDEX_VERSION * Serialization.SIZE_OF_LONG);
@@ -100,10 +104,15 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
           " capacity.";
       throw new BadCheckpointException(msg);
     }
+    //创建内存映射文件
     mappedBuffer = checkpointFileHandle.getChannel().map(MapMode.READ_WRITE, 0,
         checkpointFile.length());
+    // Creates a view of this byte buffer as a long buffer.
     elementsBuffer = mappedBuffer.asLongBuffer();
 
+    /* 从这里可以看出checkpoint file存储的数据格式:
+     * version(long), checkpointComplete信息(long)
+     */
     long version = elementsBuffer.get(INDEX_VERSION);
     if (version != (long) getVersion()) {
       throw new BadCheckpointException("Invalid version: " + version + " " +
@@ -135,6 +144,9 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
    * is called once the checkpoint is completely written and is called
    * from a separate thread which runs in the background while the file channel
    * continues operation.
+   *
+   * flume提供了checkpoint的backup机制,如果开启了backup,
+   * flume会在每次chieckpoint之后backup一下checkpoint个对应的meta file;
    *
    * @param backupDirectory - the directory to which the backup files should be
    *                        copied.
@@ -190,6 +202,8 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
   /**
    * Restore the checkpoint, if it is found to be bad.
    *
+   * 如果发现checkpoint是错误的,调用次函数可以用来恢复checkpoint
+   * 操作中会删掉checkpoint目录下的文件,然后把backup 目录下的文件copy一份过来
    * @return true - if the previous backup was successfully completed and
    * restore was successfully completed.
    * @throws IOException - If restore failed due to IOException
@@ -228,6 +242,7 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
         ", elements to sync = " + overwriteMap.size());
 
     if (shouldBackup) {
+      //获取对checkpoint 备份文件的操作的信号量
       int permits = backupCompletedSema.drainPermits();
       Preconditions.checkState(permits <= 1, "Expected only one or less " +
           "permits to checkpoint, but got " + String.valueOf(permits) +
@@ -241,6 +256,7 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
       }
     }
     // Start checkpoint
+    //设置checkpoint的start的标志位,在checkpoint结束之后,会将改为设置为COMPLETE,代表checkpoint操作结束
     elementsBuffer.put(INDEX_CHECKPOINT_MARKER, CHECKPOINT_INCOMPLETE);
     mappedBuffer.force();
   }
@@ -271,15 +287,18 @@ abstract class EventQueueBackingStoreFile extends EventQueueBackingStore {
         "concurrent update detected ");
 
     // Finish checkpoint
+    //在beginCheckpoint()方法中设置了CHECKPOINT_IMCOMPLETE的标志位,C在这里对CHECKPOINT操作完成后设置COMPLETE的标志位
     elementsBuffer.put(INDEX_CHECKPOINT_MARKER, CHECKPOINT_COMPLETE);
     mappedBuffer.force();
     if (shouldBackup) {
+      //backup checkPoint和它对应的meta file
       startBackupThread();
     }
   }
 
   /**
    * This method starts backing up the checkpoint in the background.
+   * 使用一个thread来完成的
    */
   private void startBackupThread() {
     Preconditions.checkNotNull(checkpointBackUpExecutor,

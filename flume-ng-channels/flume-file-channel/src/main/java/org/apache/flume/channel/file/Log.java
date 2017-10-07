@@ -70,6 +70,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
  * the operation and any additional modifications of the
  * FlumeEventQueue, the Log.unlockShared method should be called.
  */
+//Log类实现的是Write-ahead-Log的功能
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
 public class Log {

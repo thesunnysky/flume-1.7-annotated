@@ -88,7 +88,9 @@ final class FlumeEventQueue {
     Preconditions.checkNotNull(queueSetDBDir, "queueSetDBDir");
     this.backingStore = backingStore;
     try {
+      //Put 相关的操作
       inflightPuts = new InflightEventWrapper(inflightPutsFile);
+      //take 相关的操作
       inflightTakes = new InflightEventWrapper(inflightTakesFile);
     } catch (Exception e) {
       LOG.error("Could not read checkpoint.", e);
@@ -104,7 +106,12 @@ final class FlumeEventQueue {
       throw new IllegalStateException("Could not create QueueSet Dir "
           + queueSetDBDir);
     }
+    //可以简单的理解为在queueSetDBDir目录下创建db文件
     File dbFile = new File(queueSetDBDir, "db");
+    /**
+     * MapDB是一个快速、易用的嵌入式Java数据库引擎，
+     * 它提供了基于磁盘或者堆外(off-heap允许Java直接操作内存空间, 类似于C的malloc和free)存储的并发的Maps、Sets、Queues。
+     */
     db = DBMaker.newFileDB(dbFile)
         .closeOnJvmShutdown()
         .transactionDisable()
@@ -116,6 +123,7 @@ final class FlumeEventQueue {
     queueSet =
         db.createHashSet("QueueSet " + " - " + backingStore.getName()).make();
     long start = System.currentTimeMillis();
+    //使用了Mapdb的set, 将backingStore中的数据放入Mapdb的Set中
     for (int i = 0; i < backingStore.getSize(); i++) {
       queueSet.add(get(i));
     }
@@ -123,11 +131,13 @@ final class FlumeEventQueue {
         + " took " + (System.currentTimeMillis() - start));
   }
 
+  //反序列化InflightPuts
   SetMultimap<Long, Long> deserializeInflightPuts()
       throws IOException, BadCheckpointException {
     return inflightPuts.deserialize();
   }
 
+  //反序列化InflightTakes
   SetMultimap<Long, Long> deserializeInflightTakes()
       throws IOException, BadCheckpointException {
     return inflightTakes.deserialize();
@@ -145,9 +155,13 @@ final class FlumeEventQueue {
       LOG.debug("Checkpoint not required");
       return false;
     }
+    //开始checkpoint
     backingStore.beginCheckpoint();
+    //将inflightPuts中的events写入对应的文件中
     inflightPuts.serializeAndWrite();
+    //将inflightTakes中的events写入对应的文件中
     inflightTakes.serializeAndWrite();
+    //结束checkpoint
     backingStore.checkpoint();
     return true;
   }
@@ -185,6 +199,7 @@ final class FlumeEventQueue {
     //events since they are in the inflight takes. So puts will not happen
     //in such a way that these takes cannot go back in. If this if returns true,
     //there is a buuuuuuuug!
+    // 这注释 hahaha
     if (backingStore.getSize() == backingStore.getCapacity()) {
       LOG.error("Could not reinsert to queue, events which were taken but "
           + "not committed. Please report this issue.");
@@ -443,6 +458,10 @@ final class FlumeEventQueue {
    * A representation of in flight events which have not yet been committed.
    * None of the methods are thread safe, and should be called from thread
    * safe methods only.
+   */
+  /**
+   * InflightEventWrapper记录正在读写但是尚未提交的数据
+   * 使用了google的SetMultimap<Long, Long> 数据结构
    */
   class InflightEventWrapper {
     private SetMultimap<Long, Long> inflightEvents = HashMultimap.create();

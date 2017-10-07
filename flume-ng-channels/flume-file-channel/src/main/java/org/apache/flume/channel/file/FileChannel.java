@@ -427,6 +427,7 @@ public class FileChannel extends BasicChannelSemantics {
     private final LinkedBlockingDeque<FlumeEventPointer> putList;
     private final long transactionID;
     private final int keepAlive;
+    //Log类实现的是Write-ahead-Log的功能
     private final Log log;
     private final FlumeEventQueue queue;
     private final Semaphore queueRemaining;
@@ -556,6 +557,9 @@ public class FileChannel extends BasicChannelSemantics {
     protected void doCommit() throws InterruptedException {
       int puts = putList.size();
       int takes = takeList.size();
+      /* ? 为什么commit的时候只会处理putList 和 takeList中的一个,而不是两个都处理呢?
+       * 关键是处理完了之后会把putList和takeList同时清空
+       */
       if (puts > 0) {
         Preconditions.checkState(takes == 0, "nonzero puts and takes "
             + channelNameDescriptor);

@@ -129,6 +129,7 @@ final class EventQueueBackingStoreFileV3 extends EventQueueBackingStoreFile {
     return Serialization.VERSION_3;
   }
 
+  //写checkpoint.meta文件
   @Override
   protected void writeCheckpointMetaData() throws IOException {
     ProtosFactory.Checkpoint.Builder checkpointBuilder =
