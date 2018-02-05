@@ -105,6 +105,7 @@ public class Application {
     }
   }
 
+  //关闭source， channel 和sink
   private void stopAllComponents() {
     if (this.materializedConfiguration != null) {
       logger.info("Shutting down configuration: {}", this.materializedConfiguration);
@@ -220,6 +221,7 @@ public class Application {
           //Not a known type, use FQCN
           klass = (Class<? extends MonitorService>) Class.forName(monitorType);
         }
+        //反射
         this.monitorServer = klass.newInstance();
         Context context = new Context();
         for (String key : keys) {
@@ -364,7 +366,7 @@ public class Application {
                 "The specified configuration file does not exist: " + path);
           }
         }
-        //? 为什么使用google的Lists
+        //? 为什么使用google的Lists, 那就去查查google的集合类相比于java原生的类的好处
         List<LifecycleAware> components = Lists.newArrayList();
         /**
          * 一、没有此参数，会动态加载配置文件，默认每30秒加载一次配置文件，因此可以动态修改配置文件；
@@ -388,6 +390,7 @@ public class Application {
           application.handleConfigurationEvent(configurationProvider.getConfiguration());
         }
       }
+      //启动所有组件
       application.start();
 
       final Application appReference = application;
