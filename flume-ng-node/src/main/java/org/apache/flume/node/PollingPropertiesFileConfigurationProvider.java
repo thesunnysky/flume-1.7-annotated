@@ -32,6 +32,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.eventbus.EventBus;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
+/**
+ * 继承了PropertiesFileConfigurationProvider
+ * 相比于PropertiesFileConfigurationProvider提供了间隔检测配置文件是否发生变化的功能；
+ * 默认的检测时间间隔是30s；
+ * 实现的方式是通过newSingleThreadScheduledExecutor来定时的读取配置文件
+ */
 public class PollingPropertiesFileConfigurationProvider
     extends PropertiesFileConfigurationProvider
     implements LifecycleAware {
@@ -71,6 +77,7 @@ public class PollingPropertiesFileConfigurationProvider
     FileWatcherRunnable fileWatcherRunnable =
         new FileWatcherRunnable(file, counterGroup);
 
+    //设置initialDelay=0，这样就处理了flume刚启动时需要读取配置文件的需求
     executorService.scheduleWithFixedDelay(fileWatcherRunnable, 0, interval,
         TimeUnit.SECONDS);
 
@@ -108,6 +115,9 @@ public class PollingPropertiesFileConfigurationProvider
         + getClass().getCanonicalName() + " agentName:" + getAgentName() + " }";
   }
 
+  /**
+   * 内部类，用来定时的读取配置文件
+   */
   public class FileWatcherRunnable implements Runnable {
 
     private final File file;
@@ -130,6 +140,7 @@ public class PollingPropertiesFileConfigurationProvider
 
       long lastModified = file.lastModified();
 
+      //判断文件最后的修改时间是不是超过了最后的读取时间
       if (lastModified > lastChange) {
         LOGGER.info("Reloading configuration file:{}", file);
 
@@ -138,6 +149,7 @@ public class PollingPropertiesFileConfigurationProvider
         lastChange = lastModified;
 
         try {
+          //从新读取配置文件
           eventBus.post(getConfiguration());
         } catch (Exception e) {
           LOGGER.error("Failed to load configuration data. Exception follows.",
