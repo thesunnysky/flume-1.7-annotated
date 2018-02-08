@@ -41,6 +41,11 @@ public class LifecycleSupervisor implements LifecycleAware {
   private Map<LifecycleAware, Supervisoree> supervisedProcesses;
   private Map<LifecycleAware, ScheduledFuture<?>> monitorFutures;
 
+  /**
+   * ScheduledThreadPoolExecutor 线程池，corePoolSize=10，MaximumPoolSize=20
+   * 定期的来检测flume 各个 component的生命周期
+   * 是flume 各个组件启停的关键
+   */
   private ScheduledThreadPoolExecutor monitorService;
 
   private LifecycleState lifecycleState;
@@ -144,12 +149,14 @@ public class LifecycleSupervisor implements LifecycleAware {
     process.status.error = false;
 
     MonitorRunnable monitorRunnable = new MonitorRunnable();
+    //
     monitorRunnable.lifecycleAware = lifecycleAware;
     monitorRunnable.supervisoree = process;
     monitorRunnable.monitorService = monitorService;
 
     supervisedProcesses.put(lifecycleAware, process);
 
+    //添加到全局monitorService(ScheduledThreadPoolExecutor)中
     ScheduledFuture<?> future = monitorService.scheduleWithFixedDelay(
         monitorRunnable, 0, 3, TimeUnit.SECONDS);
     monitorFutures.put(lifecycleAware, future);
@@ -203,8 +210,18 @@ public class LifecycleSupervisor implements LifecycleAware {
   }
   public static class MonitorRunnable implements Runnable {
 
+    /**
+     * MonitorRunnable保留了对外层ScheduledExecutorService的引用，
+     * 但是感觉在MonitorRunnable内部并没有什么用
+     */
     public ScheduledExecutorService monitorService;
+    /**
+     * lifecycleAware 就是flume的各种组件，channel, source, sink 等，
+     * 这些组件实现了lifecycleAware的接口，实现了生命周期的管理，也就意味着
+     * 这些组件是通过lifecycleAware来实现启动和停止的
+     */
     public LifecycleAware lifecycleAware;
+    //用来记录component运行状态的一个辅助类
     public Supervisoree supervisoree;
 
     @Override
@@ -243,6 +260,7 @@ public class LifecycleSupervisor implements LifecycleAware {
                     supervisoree.status.desiredState,
                     supervisoree.status.failures });
 
+            //根据component 的 desiredState来做调用相应的lifecycleAware的方法
             switch (supervisoree.status.desiredState) {
               case START:
                 try {

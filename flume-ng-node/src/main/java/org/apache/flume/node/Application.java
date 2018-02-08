@@ -67,6 +67,8 @@ public class Application {
   private final List<LifecycleAware> components;
   /**
    * 核心是通过一个 ScheduledThreadPoolExecutor 实现的一个线程池
+   * 来管理Application 各个组件的生命周期
+   * 这个类是start和stop flume component的关键
    */
   private final LifecycleSupervisor supervisor;
   private MaterializedConfiguration materializedConfiguration;
@@ -83,6 +85,7 @@ public class Application {
 
   public synchronized void start() {
     for (LifecycleAware component : components) {
+      //启动所有组件的入口
       supervisor.supervise(component,
           new SupervisorPolicy.AlwaysRestartPolicy(), LifecycleState.START);
     }
@@ -376,11 +379,11 @@ public class Application {
          */
 
         if (reload) {
-          //
+          //一般都是走这个代码分支启动flume
           EventBus eventBus = new EventBus(agentName + "-event-bus");
           PollingPropertiesFileConfigurationProvider configurationProvider =
               new PollingPropertiesFileConfigurationProvider(
-                  agentName, configurationFile, eventBus, 30);
+                  agentName, configurationFile, eventBus, 30); //30s默认每30秒读取一次配置文件
           components.add(configurationProvider);
           application = new Application(components);
           eventBus.register(application);
@@ -396,6 +399,11 @@ public class Application {
       application.start();
 
       final Application appReference = application;
+      /**
+       * flume的退出机制，通过注册JVM的ShutdownHook()来再jvm退出时调用application.stop
+       * 来停止flume的components,jvm在某些情况下退出时会调用ShutdownHook函数，但是
+       * kill -9 是不会执行ShutdownHook函数的
+       */
       Runtime.getRuntime().addShutdownHook(new Thread("agent-shutdown-hook") {
         @Override
         public void run() {
