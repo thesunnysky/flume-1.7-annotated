@@ -84,6 +84,7 @@ public class LifecycleSupervisor implements LifecycleAware {
         .getId());
 
     if (monitorService != null) {
+      //关闭ScheduledThreadPoll 线程池
       monitorService.shutdown();
       try {
         monitorService.awaitTermination(10, TimeUnit.SECONDS);
@@ -105,7 +106,9 @@ public class LifecycleSupervisor implements LifecycleAware {
     for (final Entry<LifecycleAware, Supervisoree> entry : supervisedProcesses.entrySet()) {
 
       if (entry.getKey().getLifecycleState().equals(LifecycleState.START)) {
+        //更新各个components的desiredState
         entry.getValue().status.desiredState = LifecycleState.STOP;
+        //调用各个组件的stop()方法
         entry.getKey().stop();
       }
     }

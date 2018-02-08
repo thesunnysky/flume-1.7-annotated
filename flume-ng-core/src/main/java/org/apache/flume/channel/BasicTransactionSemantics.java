@@ -58,6 +58,13 @@ import com.google.common.base.Preconditions;
  * interrupted status of the thread.
  * </p>
  */
+
+/**
+ * BasicTransactionSemantics implements 了 Transaction 接口，
+ * Basic...类做的事情实现（限定）了对事务方法的调用框架，即外层通过 try() catch()
+ * 的结构来调用事物相关的方法，将事务的相关方法提取出之和事务自身逻辑相关的doXXX方法，
+ * 用户只要实现这些doXXX方法即可
+ */
 public abstract class BasicTransactionSemantics implements Transaction {
 
   private State state;

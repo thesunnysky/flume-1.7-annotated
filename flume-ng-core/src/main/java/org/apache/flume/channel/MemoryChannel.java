@@ -65,12 +65,16 @@ public class MemoryChannel extends BasicChannelSemantics {
     //用来缓存put 到 channel的queue中的Event
     private LinkedBlockingDeque<Event> putList;
     private final ChannelCounter channelCounter;
-    //用来记录从put channel queue 的event的slot数,这里使用了slot(槽)的概念,每个槽100byte,每个event至少占用1个slot
+    /*
+     * 用来记录从put channel queue 的event的slot数,这里使用了slot(槽)的概念,
+     * 每个槽100byte,每个event至少占用1个slot
+     */
     private int putByteCounter = 0;
     //用来记录从channel的queue中take掉的Event的slot数 以100为单位
     private int takeByteCounter = 0;
 
     public MemoryTransaction(int transCapacity, ChannelCounter counter) {
+      //MemoryChannel底层实现用的是LinkedBlockingDeque
       putList = new LinkedBlockingDeque<Event>(transCapacity);
       takeList = new LinkedBlockingDeque<Event>(transCapacity);
 
@@ -89,7 +93,7 @@ public class MemoryChannel extends BasicChannelSemantics {
        */
       int eventByteSize = (int) Math.ceil(estimateEventSize(event) / byteCapacitySlotSize);
 
-      /* 这里使用的是offer方法,该方法不会阻塞,如果发现此时队列不可用(既不能立即成功将数据插入到队列中)则返回;
+      /* 这里使用的是offer方法,该方法不会阻塞,如果发现此时队列不可用(既不能立即成功将数据插入到队列中)则返回false;
        * 这里可以关注一下该队列的add(),put()和offer()的区别
        */
       if (!putList.offer(event)) {
@@ -111,7 +115,7 @@ public class MemoryChannel extends BasicChannelSemantics {
             takeList.size() + " full, consider committing more frequently, " +
             "increasing capacity, or increasing thread count");
       }
-      //先获取信号量
+      //先获取一个Event对应的信号量, 一次doTake的调用获取一个Event
       if (!queueStored.tryAcquire(keepAlive, TimeUnit.SECONDS)) {
         return null;
       }
@@ -141,7 +145,7 @@ public class MemoryChannel extends BasicChannelSemantics {
       //计算此次commit时queue中event byte的变化量
       int remainingChange = takeList.size() - putList.size();
       if (remainingChange < 0) {
-        /* 表明此时put的size是大于take的size的,需要往队里中增加响应byte的容量;
+        /* 表明此时put的size是大于take的size的,需要往队里中增加相应byte的容量;
          * 在增加的时候首先需要先获得对应byte容量的信号量,表明此时还有足够的byteCapacity用来增加数据
          */
         if (!bytesRemaining.tryAcquire(putByteCounter, keepAlive, TimeUnit.SECONDS)) {
@@ -170,7 +174,10 @@ public class MemoryChannel extends BasicChannelSemantics {
             }
           }
         }
-        //清空putList和takeList
+      /**
+       * 清空putList和takeList
+       * 到这一步putList 是可以clear的
+       */
         putList.clear();
         takeList.clear();
       }
@@ -214,7 +221,11 @@ public class MemoryChannel extends BasicChannelSemantics {
           //takeList 的倒序取出插入到queue的头部
           queue.addFirst(takeList.removeLast());
         }
-        /*将putList中数据清空,putList中的数据都是还没有来的及commit到queue中的数据
+        /*
+         * 将putList中数据清空,putList中的数据都是还没有来的及commit到queue中的数据
+         * 感觉在这里清空putList会有丢数据的风险：
+         * rollBack方法在source和sink端都会调用，如果在sink段调用take的时候发生了rollback，
+         * 但是如果此时putList中有还没有commit的数据??? 感觉不太对啊
          */
         putList.clear();
       }
@@ -246,13 +257,19 @@ public class MemoryChannel extends BasicChannelSemantics {
   // we maintain the remaining permits = queue.remaining - takeList.size()
   // this allows local threads waiting for space in the queue to commit without denying access to the
   // shared lock to threads that would make more space on the queue
-  //queue中剩余容量的信号量,该信号量和queue剩余的容量是相同的,表明当前queue中还有多少剩余容量
+  /**
+   * queue中剩余容量的信号量,该信号量和queue剩余的容量是相同的,表明当前queue中还有多少剩余容量
+   * 是在向queue中put Event时需要先从queue中有位置（能够成功的获取一个信号量)
+   */
   private Semaphore queueRemaining;
 
   // used to make "reservations" to grab data from the queue.
   // by using this we can block for a while to get data without locking all other threads out
   // like we would if we tried to use a blocking call on queue
-  //queue中当前存储的event的数量,
+  /**
+   * queue中当前存储的event的数量,是再从queue总take Event时，需要保证queue 中是有Event的，
+   * 即能够成功的获取信号量
+   */
   private Semaphore queueStored;
 
   // maximum items in a transaction queue
