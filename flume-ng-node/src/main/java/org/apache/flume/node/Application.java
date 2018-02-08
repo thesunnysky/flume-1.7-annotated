@@ -376,6 +376,7 @@ public class Application {
          */
 
         if (reload) {
+          //
           EventBus eventBus = new EventBus(agentName + "-event-bus");
           PollingPropertiesFileConfigurationProvider configurationProvider =
               new PollingPropertiesFileConfigurationProvider(
@@ -384,6 +385,7 @@ public class Application {
           application = new Application(components);
           eventBus.register(application);
         } else {
+          //从配置文件中读取配置信息
           PropertiesFileConfigurationProvider configurationProvider =
               new PropertiesFileConfigurationProvider(agentName, configurationFile);
           application = new Application();
