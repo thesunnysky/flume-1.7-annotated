@@ -59,6 +59,21 @@ public interface ChannelSelector extends NamedComponent, Configurable {
    * @return the list of optional channels that this selector has selected for
    * the given event.
    */
+  /**
+   * http://flume.apache.org/FlumeUserGuide.html
+   * flume 可以配置optional channel，
+   * # channel selector configuration
+   * agent_foo.sources.avro-AppSrv-source1.selector.type = multiplexing
+   * agent_foo.sources.avro-AppSrv-source1.selector.header = State
+   * agent_foo.sources.avro-AppSrv-source1.selector.mapping.CA = mem-channel-1
+   * agent_foo.sources.avro-AppSrv-source1.selector.mapping.AZ = file-channel-2
+   * agent_foo.sources.avro-AppSrv-source1.selector.mapping.NY = mem-channel-1 file-channel-2
+   * agent_foo.sources.avro-AppSrv-source1.selector.optional.CA = mem-channel-1 file-channel-2
+   * agent_foo.sources.avro-AppSrv-source1.selector.mapping.AZ = file-channel-2
+   * agent_foo.sources.avro-AppSrv-source1.selector.default = mem-channel-1
+   * @param event
+   * @return
+   */
   public List<Channel> getOptionalChannels(Event event);
 
   /**

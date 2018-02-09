@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
  */
 /**
  * channel processor  暴露出了向channel中put Event的操作;
- * channel Processor的主要功能时间event(单个的event)/events(list, 批量的操作)放入到对应的channel中,
+ * channel Processor的主要功能是将event(单个的event)/events(list, 批量的操作)放入到对应的channel中,
  * 其中channel 可分为required channel 和 optional channel,
  * 为了区分 required channel 和 optional channel, channel processor中还实例化了channel selector
  * 来确定那些channel是必选的,哪些channel是可选的;
@@ -293,6 +293,7 @@ public class ChannelProcessor implements Configurable {
           LOG.error("Error while writing to required channel: " + reqChannel, t);
           throw (Error) t;
         } else if (t instanceof ChannelException) {
+          //在放入requiredChannel时发生异常，将重新thrown异常
           throw (ChannelException) t;
         } else {
           throw new ChannelException("Unable to put event on required " +
@@ -322,6 +323,7 @@ public class ChannelProcessor implements Configurable {
         if (t instanceof Error) {
           throw (Error) t;
         }
+        //在放入optionalChannel时发生异常，将忽略该异常
       } finally {
         if (tx != null) {
           tx.close();

@@ -49,8 +49,9 @@ import org.slf4j.LoggerFactory;
 /**
  * PollableSourceRunner 是对PollableSource的主要作用管理source工作线程;
  * source的工作线程是在PollableSourceRunner中创建,该线程的声明周期的管理也有该类来完成;
- * 同时由于flume有BACKOFF机制,就是说source在某次运行中无法从source中crate event,则根据响应的BACKOFF设置
- * 来sleep一段时间,实现Flume BACKOFF的机制也在该类中;
+ * 同时由于flume有BACKOFF机制,就是说source在某次运行中无法从source中crate event,则根据相应的BACKOFF设置
+ * 来sleep一段时间;
+ * 实现Flume BACKOFF的机制也在该类中;
  */
 public class PollableSourceRunner extends SourceRunner {
 
@@ -106,7 +107,8 @@ public class PollableSourceRunner extends SourceRunner {
   @Override
   public void stop() {
 
-    /* 设置sourceStop状态,设置后工作线程会在循环中检测这个变量的值,如果是shouldStop=True,在线程会自行退出
+    /*
+     * 设置sourceStop状态,设置后工作线程会在循环中检测这个变量的值,如果是shouldStop=True,在线程会自行退出
      */
     runner.shouldStop.set(true);
 
