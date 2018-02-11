@@ -293,7 +293,7 @@ public class ChannelProcessor implements Configurable {
           LOG.error("Error while writing to required channel: " + reqChannel, t);
           throw (Error) t;
         } else if (t instanceof ChannelException) {
-          //在放入requiredChannel时发生异常，将重新thrown异常
+          //在放入requiredChannel时发生异常，将重新thrown异常,此次函数将返回，后续对optional channel的处理也不会执行
           throw (ChannelException) t;
         } else {
           throw new ChannelException("Unable to put event on required " +
@@ -307,6 +307,10 @@ public class ChannelProcessor implements Configurable {
     }
 
     // Process optional channels
+    /**
+     * 依据该方法的代码逻辑，只有所有required channel都处理成功之后才会将event向optional channel中put
+     * 并且如果optional channel 处理失败，不会跑出ChannelException(意味着上层也不会做重试动作)
+     */
     List<Channel> optionalChannels = selector.getOptionalChannels(event);
     for (Channel optChannel : optionalChannels) {
       Transaction tx = null;
@@ -323,7 +327,7 @@ public class ChannelProcessor implements Configurable {
         if (t instanceof Error) {
           throw (Error) t;
         }
-        //在放入optionalChannel时发生异常，将忽略该异常
+        //在放入optionalChannel时发生ChannelException异常，将忽略该异常
       } finally {
         if (tx != null) {
           tx.close();
