@@ -126,7 +126,7 @@ public class MemoryChannel extends BasicChannelSemantics {
       }
       Preconditions.checkNotNull(event, "Queue.poll returned NULL despite semaphore " +
           "signalling existence of entry");
-      //将从channel杜列中取出的event再放入到takeList中
+      //将从channel队列中取出的event再放入到takeList中
       takeList.put(event);
 
       //更新eventByteSize 和 takeByteCounter
@@ -142,7 +142,7 @@ public class MemoryChannel extends BasicChannelSemantics {
      */
     @Override
     protected void doCommit() throws InterruptedException {
-      //计算此次commit时queue中event byte的变化量
+      //计算此次commit时queue中event byte的变化量,因为在每次commit时，takeList和putList中都有最新的数据
       int remainingChange = takeList.size() - putList.size();
       if (remainingChange < 0) {
         /* 表明此时put的size是大于take的size的,需要往队里中增加相应byte的容量;
@@ -165,10 +165,13 @@ public class MemoryChannel extends BasicChannelSemantics {
       }
       int puts = putList.size();
       int takes = takeList.size();
-      //将putList中的数据放入到Channel的queue中
+      /* 将putList中的数据放入到Channel的queue中,每一个channel都有唯一的一个queueLock来控制对queue
+       * 的访问，这样保证了在多个线程调用commit方法是不会出问题;
+       */
       synchronized (queueLock) {
         if (puts > 0) {
           while (!putList.isEmpty()) {
+              //如果queue是满的，则抛出异常
             if (!queue.offer(putList.removeFirst())) {
               throw new RuntimeException("Queue add failed, this shouldn't be able to happen");
             }
