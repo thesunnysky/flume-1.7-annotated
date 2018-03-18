@@ -136,6 +136,7 @@ public class TaildirSource extends AbstractSource implements
   public synchronized void stop() {
     try {
       super.stop();
+      //你需要学习一下这种将ExecutorService关闭掉的方式
       ExecutorService[] services = {idleFileChecker, positionWriter};
       for (ExecutorService service : services) {
         service.shutdown();
@@ -196,7 +197,8 @@ public class TaildirSource extends AbstractSource implements
     //设置positionFile的Path,如果配置文件中没有配置默认是/home/user/.flume/taildir_position.json
     positionFilePath = context.getString(POSITION_FILE, homePath + DEFAULT_POSITION_FILE);
     Path positionFile = Paths.get(positionFilePath);
-    //生成了positionFile的目录,但是可能这个文件的父目录并不存在,应该是如果不存在就创建,但是如果存在呢,return?
+    //生成了positionFile的目录,但是可能这个文件的父目录并不存在,应该是如果不存在就创建,但是如果存在则return
+    //并且不会抛出任何异常
     try {
       Files.createDirectories(positionFile.getParent());
     } catch (IOException e) {
@@ -306,6 +308,10 @@ public class TaildirSource extends AbstractSource implements
       try {
         //将读取event放入到channel中
         getChannelProcessor().processEventBatch(events);
+        /** 重要： 只有成功将读取的events放入到channel中之后才会更新读取文件的位置
+         *  如果processEventBatch失败，下面的reader.commit()不会执行，后续会重新
+         *  从上一次读取文件的位置读取
+         */
         reader.commit();
       } catch (ChannelException ex) {
         //对于像channel 放入event失败的情况,source会在间隔一段时候后一直重试
@@ -315,11 +321,13 @@ public class TaildirSource extends AbstractSource implements
         retryInterval = retryInterval << 1;
         retryInterval = Math.min(retryInterval, maxRetryInterval);
         continue;
-      }
+      } //reset retryInterval
       retryInterval = 1000;
       sourceCounter.addToEventAcceptedCount(events.size());
       sourceCounter.incrementAppendBatchAcceptedCount();
-      //表示event已经读取完了,可以结束对改文件的处理了
+      /**events.sise < batchSize,表示文件中的event已经读取完了（否则events.size不会 < batchSize 的)
+       * 可以结束对该文件的处理了
+       */
       if (events.size() < batchSize) {
         break;
       }

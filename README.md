@@ -19,7 +19,7 @@ under the License.
 
 # 写在前面
 
-这份代码是Apache Flume-NG v1.7的代码,自己想要读一下Flume的代码就fork了一份,同时在读的过程中就直接在代码里添加注释,感觉直接在代码里加注释,想到什么就写下什么是一种很Nice的做法,能够增加自己代码阅读乐趣,另外还有一些自己从网上搜集的资料和自己的一些总结的文档放https://github.com/thesunnysky/markdowns/tree/master/flume 文件件下.
+这份代码是Apache Flume-NG v1.7的代码,自己想要读一下Flume的代码就fork了一份,同时在读的过程中就直接在代码里添加注释,感觉直接在代码里加注释,想到什么就写下什么是一种很Nice的做法,能够增加自己代码阅读乐趣,另外还有一些自己从网上搜集的资料和自己的一些总结的文档放在https://github.com/thesunnysky/markdowns/tree/master/flume 文件夹下.
 
 不得不说的是这仅仅是自己在阅读的过程中个人对代码的理解,里面的严谨和缜密肯定有很多做的不到位,对代码的理解也未必是准确无误的,如果发现有任何的纰漏的地方,欢迎指出,谢谢.
 
