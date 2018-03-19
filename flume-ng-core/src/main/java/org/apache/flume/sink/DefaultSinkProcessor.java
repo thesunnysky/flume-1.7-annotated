@@ -36,7 +36,7 @@ import com.google.common.base.Preconditions;
  * assigned to a group.
  */
 /*
- * DefaultSinkProcessor 是flume的磨人的SinkProcessor,如果配置文件中没有配置processors,
+ * DefaultSinkProcessor 是flume的默认的SinkProcessor,如果配置文件中没有配置processors,
  * 那起作用的就是DefaultSinkProcessor
  */
 public class DefaultSinkProcessor implements SinkProcessor, ConfigurableComponent {
