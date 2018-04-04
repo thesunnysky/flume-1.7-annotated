@@ -97,7 +97,7 @@ public class MemoryChannel extends BasicChannelSemantics {
        * 这里可以关注一下该队列的add(),put()和offer()的区别
        */
       if (!putList.offer(event)) {
-        // 队列已满,抛出异常
+        // 队列已满,抛出异常, 此时用户的代码逻辑会catch该异常,并执行事物rollback()
         throw new ChannelException(
             "Put queue for MemoryTransaction of capacity " +
             putList.size() + " full, consider committing more frequently, " +
@@ -171,7 +171,13 @@ public class MemoryChannel extends BasicChannelSemantics {
       synchronized (queueLock) {
         if (puts > 0) {
           while (!putList.isEmpty()) {
-              //如果queue是满的，则抛出异常
+            /**
+             * 如果queue是满的，则抛出异常
+             * 这种情况（一般）时不会发生的，因为queue 并没有指定长度，这里它的长度为LinkedBlockingDeque的
+             * 默认长度：Integer.MAX_VALUE；
+             * 并且另外重要的一点是代码执行到此之前就已经对queue的容量做了检查了，如果queue的容量是不够的，代码
+             * 是不会执行到这里的；
+             */
             if (!queue.offer(putList.removeFirst())) {
               throw new RuntimeException("Queue add failed, this shouldn't be able to happen");
             }

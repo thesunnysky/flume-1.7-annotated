@@ -213,7 +213,10 @@ public class TailFile {
       if (bufferPos == NEED_READING) {
         //说明有新的数据需要读取
         if (raf.getFilePointer() < raf.length()) {
-          //readFile()会更新bufferPos的值
+          /*
+           * 从文件中读取数据，放到buffer中
+           * readFile()会更新bufferPos的值
+           */
           readFile();
         } else {
           //已经是文件末尾了,并且是oldBuffer中还有数据
@@ -221,6 +224,7 @@ public class TailFile {
             //将oldBuffer中的数据转换成lineResult,并清空oldBuffer
             lineResult = new LineResult(false, oldBuffer);
             oldBuffer = new byte[0];
+            //更新文件读取的位置
             setLineReadPos(lineReadPos + lineResult.line.length);
           }
           break;
@@ -248,8 +252,13 @@ public class TailFile {
           oldBuffer = new byte[0];
           //检查buffer中是否还有缓存的数据,如果有的话就更新buffer的位置到下一个byte的数据位置,如果没有将bufferPos 置位-1;
           if (i + 1 < buffer.length) {
+            /* 更新bufferPos
+             * 这种情况是由于在buffer中存在很多行,而在一次循环中每次只会读取（文件中的一行，以换行符来区别),这样需要
+             * 经过很多次循环才能处理完buffer中的数据
+             */
             bufferPos = i + 1;
           } else {
+            //buffer中的数据已经处理完了，后续需要重新从文件中读取数据放到buffer中处理
             bufferPos = NEED_READING;
           }
           break;

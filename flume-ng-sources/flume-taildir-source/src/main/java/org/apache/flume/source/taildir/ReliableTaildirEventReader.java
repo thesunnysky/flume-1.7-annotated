@@ -91,7 +91,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     /* 讲配置文件中配置的filegroup配置项转换成TaildirMatcher并存入到taildirCache中;
      * 然后后续的操作都会taildirCache来进行;
      * 补充:后续对taildirCache的更新操作是在检测到filePath的父目录更新后才更新的,
-     * 以为只有父目录更新后才以为着目录下有文件的增加或者删除,单单对文件的内容的修改不会引起父文件夹的更新
+     * 因为只有父目录更新后才以为着目录下有文件的增加或者删除,单单对文件的内容的修改不会引起父文件夹的更新
      */
     List<TaildirMatcher> taildirCache = Lists.newArrayList();
     for (Entry<String, String> e : filePaths.entrySet()) {
@@ -207,6 +207,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     return readEvents(numEvents, true);
   }
 
+  //backoffWithoutNL: back off without new line?
   public List<Event> readEvents(int numEvents, boolean backoffWithoutNL)
       throws IOException {
     if (!committed) {

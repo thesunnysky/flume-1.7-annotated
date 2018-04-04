@@ -311,6 +311,10 @@ public class TaildirSource extends AbstractSource implements
         /** 重要： 只有成功将读取的events放入到channel中之后才会更新读取文件的位置
          *  如果processEventBatch失败，下面的reader.commit()不会执行，后续会重新
          *  从上一次读取文件的位置读取
+         *  这里可以体现出memorychannel不安全性：
+         *  因为taildirsource在每次向memorychannel中put event成功后就会更新读取文件的位置，
+         *  而如果此时sink还没有从memorychannel中take走这些event时而memorychannel 崩了
+         *  那么memorychannel中数据就会丢失掉，并且由于taildirsource不会再次去读取taildir中的文件
          */
         reader.commit();
       } catch (ChannelException ex) {
