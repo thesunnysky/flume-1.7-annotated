@@ -17,7 +17,26 @@
 
 package org.apache.flume.source.taildir;
 
-import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.*;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Table;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.gson.Gson;
+import org.apache.flume.ChannelException;
+import org.apache.flume.Context;
+import org.apache.flume.Event;
+import org.apache.flume.FlumeException;
+import org.apache.flume.PollableSource;
+import org.apache.flume.conf.Configurable;
+import org.apache.flume.instrumentation.SourceCounter;
+import org.apache.flume.source.AbstractSource;
+import org.apache.flume.source.PollableSourceConstants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -34,27 +53,27 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.flume.ChannelException;
-import org.apache.flume.Context;
-import org.apache.flume.Event;
-import org.apache.flume.FlumeException;
-import org.apache.flume.PollableSource;
-import org.apache.flume.conf.Configurable;
-import org.apache.flume.instrumentation.SourceCounter;
-import org.apache.flume.source.AbstractSource;
-import org.apache.flume.source.PollableSourceConstants;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Table;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.google.gson.Gson;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.BATCH_SIZE;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.BYTE_OFFSET_HEADER;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.CACHE_PATTERN_MATCHING;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_BATCH_SIZE;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_BYTE_OFFSET_HEADER;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_CACHE_PATTERN_MATCHING;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_FILENAME_HEADER_KEY;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_FILE_HEADER;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_IDLE_TIMEOUT;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_POSITION_FILE;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_SKIP_TO_END;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.DEFAULT_WRITE_POS_INTERVAL;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.FILENAME_HEADER;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.FILENAME_HEADER_KEY;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.FILE_GROUPS;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.FILE_GROUPS_PREFIX;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.HEADERS_PREFIX;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.IDLE_TIMEOUT;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.POSITION_FILE;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.SKIP_TO_END;
+import static org.apache.flume.source.taildir.TaildirSourceConfigurationConstants.WRITE_POS_INTERVAL;
 
 public class TaildirSource extends AbstractSource implements
     PollableSource, Configurable {
@@ -206,12 +225,15 @@ public class TaildirSource extends AbstractSource implements
     }
     headerTable = getTable(context, HEADERS_PREFIX);
     batchSize = context.getInteger(BATCH_SIZE, DEFAULT_BATCH_SIZE);
+
     /* skipToEnd参数的作用: boolean变量,表示是否在positionfile中没有该文件的的position信息时直接跳到该文件的末尾,
      * 默认值是false, 表示将从文件头部开始读取该文件
      */
     skipToEnd = context.getBoolean(SKIP_TO_END, DEFAULT_SKIP_TO_END);
     byteOffsetHeader = context.getBoolean(BYTE_OFFSET_HEADER, DEFAULT_BYTE_OFFSET_HEADER);
     idleTimeout = context.getInteger(IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT);
+
+    // TaildirSource 默认每 3s 更新一次 position file
     writePosInterval = context.getInteger(WRITE_POS_INTERVAL, DEFAULT_WRITE_POS_INTERVAL);
     cachePatternMatching = context.getBoolean(CACHE_PATTERN_MATCHING,
         DEFAULT_CACHE_PATTERN_MATCHING);

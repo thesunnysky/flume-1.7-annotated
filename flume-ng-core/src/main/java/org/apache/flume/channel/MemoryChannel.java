@@ -62,14 +62,17 @@ public class MemoryChannel extends BasicChannelSemantics {
   private class MemoryTransaction extends BasicTransactionSemantics {
     //用来缓存从channel的queue中take掉的Event
     private LinkedBlockingDeque<Event> takeList;
+
     //用来缓存put 到 channel的queue中的Event
     private LinkedBlockingDeque<Event> putList;
+
     private final ChannelCounter channelCounter;
     /*
      * 用来记录从put channel queue 的event的slot数,这里使用了slot(槽)的概念,
      * 每个槽100byte,每个event至少占用1个slot
      */
     private int putByteCounter = 0;
+
     //用来记录从channel的queue中take掉的Event的slot数 以100为单位
     private int takeByteCounter = 0;
 
